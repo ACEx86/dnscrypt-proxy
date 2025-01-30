@@ -235,11 +235,13 @@ func (xTransport *XTransport) rebuildTransport() {
 			var only13 = 0
 			var SuitesCount = 0
 			for _, expectedSuiteID := range xTransport.tlsCipherSuite {
+				SuitesCount += 1
 				check := strconv.Itoa(int(expectedSuiteID))
 				if strings.Contains(tls13 , check) {
-					SuitesCount += 1
+					only13 += 1 
+				} else {
+					break
 				}
-				only13 += 1 
 			}
 			if only13 != SuitesCount {
 				tlsClientConfig.CipherSuites = xTransport.tlsCipherSuite
