@@ -419,29 +419,38 @@ func (xTransport *XTransport) resolveAndUpdateCache(host string) error {
 		dlog.Notice(err)
 	}
 	if err != nil {
-		for _, proto := range protos {
+		if xTransport.bootstrapResolvers != nil && len(xTransport.bootstrapResolvers) > 0 {
+			for _, proto := range protos {
+				if err != nil {
+					dlog.Noticef(
+						"Resolving server host [%s] using bootstrap resolvers over %s",
+						host,
+						proto,
+					)
+				}
+				foundIP, ttl, err = xTransport.resolveUsingResolvers(proto, host, xTransport.bootstrapResolvers)
+				if err == nil {
+					break
+				}
+			}	
+		} else {
+			err = errors.New("Bootstrat resolvers is empty")
+			dlog.Notice(err)
+		}
+		if err != nil && xTransport.ignoreSystemDNS == false {
+			dlog.Noticef("Bootstrap resolvers didn't respond - Trying with the system resolver as a last resort")
+			foundIP, ttl, err = xTransport.resolveUsingSystem(host)
 			if err != nil {
-				dlog.Noticef(
-					"Resolving server host [%s] using bootstrap resolvers over %s",
-					host,
-					proto,
-				)
+				err = errors.New("System DNS error")
+				dlog.Notice(err)
 			}
-			foundIP, ttl, err = xTransport.resolveUsingResolvers(proto, host, xTransport.bootstrapResolvers)
-			if err == nil {
-				break
+		} else if err != nil && xTransport.ignoreSystemDNS == true {
+			if len(xTransport.bootstrapResolvers) > 0 {
+				dlog.Noticef("Bootstrap resolver failled and we are ignoring system dns")
+			} else {
+				dlog.Noticef("We are ignoring system dns")
 			}
 		}
-	}
-	if err != nil && xTransport.ignoreSystemDNS == false {
-		dlog.Noticef("Bootstrap resolvers didn't respond - Trying with the system resolver as a last resort")
-		foundIP, ttl, err = xTransport.resolveUsingSystem(host)
-		if err != nil {
-			err = errors.New("System DNS error")
-			dlog.Notice(err)
-		}	
-	}else if err != nil && xTransport.ignoreSystemDNS == true {
-		dlog.Noticef("Bootstrap resolvers didn't respond and we are ignoring system dns")
 	}
 	if ttl < MinResolverIPTTL {
 		ttl = MinResolverIPTTL
