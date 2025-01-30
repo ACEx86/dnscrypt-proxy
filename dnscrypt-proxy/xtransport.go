@@ -229,25 +229,37 @@ func (xTransport *XTransport) rebuildTransport() {
 	}
 	xTransport.MaxVersion = tls.VersionTLS13
 	tlsClientConfig.MaxVersion = tls.VersionTLS13
-	if xTransport.tlsCipherSuite != nil && len(xTransport.tlsCipherSuite) > 0 && xTransport.keepCipherSuite == true {
-		var tls13 = "198 199 4865 4866 4867 4868 4869 49332 49333"
-		var only13 = 0
-		var SuitesCount = 0
-		for _, expectedSuiteID := range xTransport.tlsCipherSuite {
-			check := strconv.Itoa(int(expectedSuiteID))
-			if strings.Contains(tls13 , check) {
-				SuitesCount += 1
+	if xTransport.keepCipherSuite == true {
+		if xTransport.tlsCipherSuite != nil && len(xTransport.tlsCipherSuite) > 0 {
+			var tls13 = "198 199 4865 4866 4867 4868 4869 49332 49333"
+			var only13 = 0
+			var SuitesCount = 0
+			for _, expectedSuiteID := range xTransport.tlsCipherSuite {
+				check := strconv.Itoa(int(expectedSuiteID))
+				if strings.Contains(tls13 , check) {
+					SuitesCount += 1
+				}
+				only13 += 1 
 			}
-			only13 += 1 
-		}
-		if only13 != SuitesCount {
+			if only13 != SuitesCount {
+				tlsClientConfig.CipherSuites = xTransport.tlsCipherSuite
+				dlog.Info("Explicit cipher suite configured downgrading to TLS 1.2")
+				xTransport.MaxVersion = tls.VersionTLS12
+				tlsClientConfig.MaxVersion = tls.VersionTLS12
+				if xTransport.CSHandleError < 2 {
+					xTransport.CSHandleError += 1
+				}
+			} else if xTransport.CSHandleError == 3 {
+				xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
+				tlsClientConfig.CipherSuites = xTransport.tlsCipherSuite
+				xTransport.MaxVersion = tls.VersionTLS12
+				tlsClientConfig.MaxVersion = tls.VersionTLS12
+			}
+		} else if xTransport.CSHandleError == 3 {
+			xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
 			tlsClientConfig.CipherSuites = xTransport.tlsCipherSuite
-			dlog.Info("Explicit cipher suite configured downgrading to TLS 1.2")
 			xTransport.MaxVersion = tls.VersionTLS12
 			tlsClientConfig.MaxVersion = tls.VersionTLS12
-			if xTransport.CSHandleError < 2 {
-				xTransport.CSHandleError += 1
-			}
 		}
 	}
 	transport.TLSClientConfig = &tlsClientConfig
