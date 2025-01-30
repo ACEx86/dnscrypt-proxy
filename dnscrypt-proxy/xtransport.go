@@ -226,6 +226,7 @@ func (xTransport *XTransport) rebuildTransport() {
 	} else {
 		tlsClientConfig.ClientSessionCache = tls.NewLRUClientSessionCache(10)
 	}
+	tlsClientConfig.MaxVersion = tls.VersionTLS13
 	if xTransport.tlsCipherSuite != nil && len(xTransport.tlsCipherSuite) > 0 && xTransport.keepCipherSuite == true {
 		var tls13 = "198 199 4865 4866 4867 4868 4869 49332 49333"
 		var only13 = 0
@@ -245,8 +246,6 @@ func (xTransport *XTransport) rebuildTransport() {
 				xTransport.CSHandleError += 1
 			}
 		}
-	} else {
-		tlsClientConfig.MaxVersion = tls.VersionTLS13
 	}
 	transport.TLSClientConfig = &tlsClientConfig
 	if http2Transport, err := http2.ConfigureTransports(transport); err != nil {
@@ -562,14 +561,15 @@ func (xTransport *XTransport) Fetch(
 			err = errors.New(resp.Status)
 		}
 	} else {
-		dlog.Debugf("HTTP client error: [%v]", err)
+		xTransport.transport.CloseIdleConnections()
+		dlog.Debugf("HTTP client error: [%v] - closing idle connections", err)
 		dlog.Debugf("[%s]: [%s]", req.URL, err)
 		if xTransport.tlsCipherSuite != nil && xTransport.keepCipherSuite == true {
-			dlog.Warnf(
-				"TLS handshake failure with cipher suite: %v - Try changing or deleting the tls_cipher_suite value in the configuration file",
-				xTransport.tlsCipherSuite,
-			)
 			if strings.Contains(err.Error(), "handshake failure") || strings.Contains(err.Error(), "tls: error decoding message") {
+				dlog.Warnf(
+					"TLS handshake failure with cipher suite: %v - Try changing or deleting the tls_cipher_suite value in the configuration file",
+					xTransport.tlsCipherSuite,
+				)
 				if xTransport.CSHandleError == 1 {
 					xTransport.CSHandleError += 1
 					xTransport.keepCipherSuite = false
