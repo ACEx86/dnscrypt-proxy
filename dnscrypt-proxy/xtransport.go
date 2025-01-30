@@ -69,6 +69,7 @@ type XTransport struct {
 	useIPv4                  bool
 	useIPv6                  bool
 	http3                    bool
+	MaxVersion               uint
 	tlsDisableSessionTickets bool
 	tlsCipherSuite           []uint16
 	keepCipherSuite          bool
@@ -226,6 +227,7 @@ func (xTransport *XTransport) rebuildTransport() {
 	} else {
 		tlsClientConfig.ClientSessionCache = tls.NewLRUClientSessionCache(10)
 	}
+	xTransport.MaxVersion = tls.VersionTLS13
 	tlsClientConfig.MaxVersion = tls.VersionTLS13
 	if xTransport.tlsCipherSuite != nil && len(xTransport.tlsCipherSuite) > 0 && xTransport.keepCipherSuite == true {
 		var tls13 = "198 199 4865 4866 4867 4868 4869 49332 49333"
@@ -241,6 +243,7 @@ func (xTransport *XTransport) rebuildTransport() {
 		if only13 != SuitesCount {
 			tlsClientConfig.CipherSuites = xTransport.tlsCipherSuite
 			dlog.Info("Explicit cipher suite configured downgrading to TLS 1.2")
+			xTransport.MaxVersion = tls.VersionTLS12
 			tlsClientConfig.MaxVersion = tls.VersionTLS12
 			if xTransport.CSHandleError < 2 {
 				xTransport.CSHandleError += 1
@@ -573,6 +576,12 @@ func (xTransport *XTransport) Fetch(
 				if xTransport.CSHandleError == 1 {
 					xTransport.CSHandleError += 1
 					xTransport.keepCipherSuite = false
+				}else if xTransport.CSHandleError == 0 && xTransport.MaxVersion == tls.VersionTLS13 {
+					xTransport.keepCipherSuite = true
+				}
+			} else {
+				if xTransport.MaxVersion == tls.VersionTLS13 {
+					xTransport.keepCipherSuite = true
 				}
 			}
 			xTransport.rebuildTransport()
