@@ -581,7 +581,7 @@ func (xTransport *XTransport) Fetch(
 		xTransport.transport.CloseIdleConnections()
 		dlog.Debugf("HTTP client error: [%v] - closing idle connections", err)
 		dlog.Debugf("[%s]: [%s]", req.URL, err)
-		if xTransport.MaxVersion == tls.VersionTLS13 && xTransport.CSHandleError == 0 {
+		if xTransport.MaxVersion == tls.VersionTLS13 && xTransport.CSHandleError == 0 && rtt < timeout {
 			xTransport.CSHandleError = 3
 			xTransport.keepCipherSuite = true
 			xTransport.rebuildTransport()
@@ -599,7 +599,9 @@ func (xTransport *XTransport) Fetch(
 						xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
 					}
 				}
-				xTransport.rebuildTransport()
+				if rtt < timeout {
+					xTransport.rebuildTransport()
+				}
 			}
 		}
 		return nil, statusCode, nil, rtt, err
