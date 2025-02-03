@@ -569,15 +569,15 @@ func (xTransport *XTransport) Fetch(
 	rtt := time.Since(start)
 	var statusCode int
 	if resp != nil {
-		statusCode = resp.StatusCode
-	}
-	if err == nil {
-		if resp == nil {
-			err = errors.New("Webserver returned an error")
-		} else if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		if resp.StatusCode < 200 || resp.StatusCode > 299 {
 			err = errors.New(resp.Status)
+		} else {
+			statusCode = resp.StatusCode
 		}
 	} else {
+		err = errors.New("Webserver returned an error")
+	}
+	if err != nil {
 		xTransport.transport.CloseIdleConnections()
 		dlog.Debugf("HTTP client error: [%v] - closing idle connections", err)
 		dlog.Debugf("[%s]: [%s]", req.URL, err)
