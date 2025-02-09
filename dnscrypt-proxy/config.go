@@ -720,8 +720,10 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 		netprobeAddress = config.BootstrapResolvers[0]
 	}
 	if !isCommandMode {
-		if err := NetProbe(proxy, netprobeAddress, netprobeTimeout); err != nil {
-			return err
+		if len(config.NetprobeAddress) > 0 {
+			if err := NetProbe(proxy, netprobeAddress, netprobeTimeout); err != nil {
+				return err
+			}
 		}
 		for _, listenAddrStr := range proxy.listenAddresses {
 			proxy.addDNSListener(listenAddrStr)
