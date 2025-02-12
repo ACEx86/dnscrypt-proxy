@@ -574,7 +574,7 @@ func (xTransport *XTransport) Fetch(
 		} else {
 			statusCode = resp.StatusCode
 		}
-	} else {
+	} else if err == nil {
 		err = errors.New("Webserver returned an error")
 	}
 	if err != nil {
