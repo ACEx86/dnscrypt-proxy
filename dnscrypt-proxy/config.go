@@ -716,13 +716,28 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 	netprobeAddress := DefaultNetprobeAddress
 	if len(config.NetprobeAddress) > 0 {
 		netprobeAddress = config.NetprobeAddress
-	} else if len(config.BootstrapResolvers) > 0 {
-		netprobeAddress = config.BootstrapResolvers[0]
 	}
 	if !isCommandMode {
-		if len(config.NetprobeAddress) > 0 {
-			if err := NetProbe(proxy, netprobeAddress, netprobeTimeout); err != nil {
-				return err
+		var nerr error = nil
+		if nerr := NetProbe(proxy, netprobeAddress, netprobeTimeout); nerr != nil {
+			return nerr
+		}
+		if nerr != nil && len(DefaultNetprobeAddress) > 0 && netprobeAddress != DefaultNetprobeAddress {
+			nerr = nil
+			if nerr := NetProbe(proxy, DefaultNetprobeAddress, netprobeTimeout); nerr != nil {
+				return nerr
+			}
+		}
+		if nerr != nil && len(config.BootstrapResolvers) > 0 && netprobeAddress != config.BootstrapResolvers[0] && DefaultNetprobeAddress != config.BootstrapResolvers[0] {
+			nerr = nil
+			if nerr := NetProbe(proxy, config.BootstrapResolvers[0], netprobeTimeout); nerr != nil {
+				return nerr
+			}
+		}
+		if nerr != nil && len(DefaultBootstrapResolver) > 0 && netprobeAddress != config.BootstrapResolvers[0] && DefaultNetprobeAddress != config.BootstrapResolvers[0] && config.BootstrapResolvers[0] != DefaultBootstrapResolver {
+			nerr = nil
+			if nerr := NetProbe(proxy, DefaultBootstrapResolver, netprobeTimeout); nerr != nil {
+				return nerr
 			}
 		}
 		for _, listenAddrStr := range proxy.listenAddresses {
