@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net"
 	"time"
 
@@ -8,8 +9,14 @@ import (
 )
 
 func NetProbe(proxy *Proxy, address string, timeout int) error {
-	if len(address) <= 0 || timeout == 0 {
-		return nil
+	addrlen := len(address)
+	if addrlen <= 9 {
+		if addrlen > 0 {
+			dlog.Notice("Netprobe address not configured correctly. Example: 1.1.1.1:53")
+		} else {
+			dlog.Notice("Netprobe address not configured.")
+		}
+		return errors.New("Netprobe address not configured.")
 	}
 	if captivePortalHandler, err := ColdStart(proxy); err == nil {
 		if captivePortalHandler != nil {
@@ -23,7 +30,7 @@ func NetProbe(proxy *Proxy, address string, timeout int) error {
 		return err
 	}
 	retried := false
-	if timeout < 0 {
+	if timeout <= 0 {
 		timeout = MaxTimeout
 	} else {
 		timeout = Min(MaxTimeout, timeout)
