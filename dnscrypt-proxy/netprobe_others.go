@@ -10,8 +10,17 @@ import (
 )
 
 func NetProbe(proxy *Proxy, address string, timeout int) error {
-	if len(address) <= 0 || timeout == 0 {
+	if timeout == 0 {
 		return nil
+	}
+	addrlen := len(address)
+	if addrlen <= 9 { // <!=T
+		if addrlen > 0 {
+			dlog.Notice("Netprobe address not configured correctly. Example: 1.1.1.1:53")
+		} else {
+			dlog.Notice("Netprobe address not configured.")
+		}
+		return errors.New("Netprobe address not configured.")
 	}
 	if captivePortalHandler, err := ColdStart(proxy); err == nil {
 		if captivePortalHandler != nil {
