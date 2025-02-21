@@ -726,9 +726,10 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 			}
 			if nerr != nil && len(DefaultBootstrapResolver) > 8 && DefaultBootstrapResolver != config.BootstrapResolvers[0] && DefaultBootstrapResolver != netprobeAddress && DefaultBootstrapResolver != DefaultNetprobeAddress {
 				nerr = nil
-				if nerr = NetProbe(proxy, DefaultBootstrapResolver, netprobeTimeout); nerr != nil {
-					return nerr
-				}
+				nerr = NetProbe(proxy, DefaultBootstrapResolver, netprobeTimeout)
+			}
+			if nerr != nil {
+				return nerr
 			}
 		}
 		for _, listenAddrStr := range proxy.listenAddresses {
