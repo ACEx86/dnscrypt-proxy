@@ -56,7 +56,7 @@ type AltSupport struct {
 
 type XTransport struct {
 	transport                *http.Transport
-	h3Transport              *http3.RoundTripper
+	h3Transport              *http3.Transport
 	keepAlive                time.Duration
 	timeout                  time.Duration
 	cachedIPs                CachedIPs
@@ -306,7 +306,7 @@ func (xTransport *XTransport) rebuildTransport() {
 			tlsCfg.ServerName = host
 			return quic.DialEarly(ctx, udpConn, udpAddr, tlsCfg, cfg)
 		}
-		h3Transport := &http3.RoundTripper{DisableCompression: true, TLSClientConfig: &tlsClientConfig, Dial: dial}
+		h3Transport := &http3.Transport{DisableCompression: true, TLSClientConfig: &tlsClientConfig, Dial: dial}
 		xTransport.h3Transport = h3Transport
 	}
 }
