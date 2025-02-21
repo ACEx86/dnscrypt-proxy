@@ -388,10 +388,6 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 	proxy.xTransport.tlsCipherSuite = config.TLSCipherSuite
 	proxy.xTransport.mainProto = proxy.mainProto
 	proxy.xTransport.http3 = config.HTTP3
-	if len(config.BootstrapResolvers) == 0 && len(config.BootstrapResolversLegacy) > 0 {
-		dlog.Warnf("fallback_resolvers was renamed to bootstrap_resolvers - Please update your configuration")
-		config.BootstrapResolvers = config.BootstrapResolversLegacy
-	}
 	if len(config.BootstrapResolvers) > 0 {
 		for _, resolver := range config.BootstrapResolvers {
 			if err := isIPAndPort(resolver); err != nil {
@@ -722,19 +718,19 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 		if nerr := NetProbe(proxy, netprobeAddress, netprobeTimeout); nerr != nil {
 			return nerr
 		}
-		if nerr != nil && len(DefaultNetprobeAddress) > 0 && netprobeAddress != DefaultNetprobeAddress {
+		if nerr != nil && len(DefaultNetprobeAddress) > 6 && netprobeAddress != DefaultNetprobeAddress {
 			nerr = nil
 			if nerr := NetProbe(proxy, DefaultNetprobeAddress, netprobeTimeout); nerr != nil {
 				return nerr
 			}
 		}
-		if nerr != nil && len(config.BootstrapResolvers) > 0 && netprobeAddress != config.BootstrapResolvers[0] && DefaultNetprobeAddress != config.BootstrapResolvers[0] {
+		if nerr != nil && len(config.BootstrapResolvers) > 6 && netprobeAddress != config.BootstrapResolvers[0] && DefaultNetprobeAddress != config.BootstrapResolvers[0] {
 			nerr = nil
 			if nerr := NetProbe(proxy, config.BootstrapResolvers[0], netprobeTimeout); nerr != nil {
 				return nerr
 			}
 		}
-		if nerr != nil && len(DefaultBootstrapResolver) > 0 && netprobeAddress != config.BootstrapResolvers[0] && DefaultNetprobeAddress != config.BootstrapResolvers[0] && config.BootstrapResolvers[0] != DefaultBootstrapResolver {
+		if nerr != nil && len(DefaultBootstrapResolver) > 6 && netprobeAddress != config.BootstrapResolvers[0] && DefaultNetprobeAddress != config.BootstrapResolvers[0] && config.BootstrapResolvers[0] != DefaultBootstrapResolver {
 			nerr = nil
 			if nerr := NetProbe(proxy, DefaultBootstrapResolver, netprobeTimeout); nerr != nil {
 				return nerr
