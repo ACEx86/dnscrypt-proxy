@@ -397,8 +397,8 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 			}
 		}
 		proxy.xTransport.bootstrapResolvers = config.BootstrapResolvers
-		proxy.xTransport.ignoreSystemDNS = config.IgnoreSystemDNS
 	}
+	proxy.xTransport.ignoreSystemDNS = config.IgnoreSystemDNS
 	proxy.xTransport.useIPv4 = config.SourceIPv4
 	proxy.xTransport.useIPv6 = config.SourceIPv6
 	proxy.xTransport.keepAlive = time.Duration(config.KeepAlive) * time.Second
