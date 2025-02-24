@@ -36,6 +36,7 @@ type Config struct {
 	DisabledServerNames      []string       `toml:"disabled_server_names"`
 	ListenAddresses          []string       `toml:"listen_addresses"`
 	LocalDoH                 LocalDoHConfig `toml:"local_doh"`
+	UserAgent                string         `toml:"user_agent"`
 	UserName                 string         `toml:"user_name"`
 	ForceTCP                 bool           `toml:"force_tcp"`
 	HTTP3                    bool           `toml:"http3"`
@@ -112,6 +113,7 @@ type Config struct {
 
 func newConfig() Config {
 	return Config{
+		UserAgent:                DefaultUserAgent,
 		LogLevel:                 int(dlog.LogLevel()),
 		LogFileLatest:            true,
 		ListenAddresses:          []string{"127.0.0.1:53"},
@@ -384,6 +386,10 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 
 	proxy.child = *flags.Child
 	proxy.xTransport = NewXTransport()
+	if len(config.UserAgent) > 0 {
+		dlog.Infof("Configured User Agent: %s", config.UserAgent)
+		proxy.xTransport.UserAgent = config.UserAgent
+	}
 	proxy.xTransport.tlsDisableSessionTickets = config.TLSDisableSessionTickets
 	proxy.xTransport.tlsCipherSuite = config.TLSCipherSuite
 	proxy.xTransport.mainProto = proxy.mainProto
