@@ -31,6 +31,7 @@ import (
 )
 
 const (
+	DefaultUserAgent         = "dnscrypt-proxy"
 	DefaultBootstrapResolver = "9.9.9.9:53"
 	DefaultKeepAlive         = 5 * time.Second
 	DefaultTimeout           = 30 * time.Second
@@ -55,6 +56,7 @@ type AltSupport struct {
 }
 
 type XTransport struct {
+	UserAgent                string
 	transport                *http.Transport
 	h3Transport              *http3.Transport
 	keepAlive                time.Duration
@@ -85,6 +87,7 @@ func NewXTransport() *XTransport {
 		panic("DefaultBootstrapResolver does not parse")
 	}
 	xTransport := XTransport{
+		UserAgent:                DefaultUserAgent,
 		cachedIPs:                CachedIPs{cache: make(map[string]*CachedIPItem)},
 		altSupport:               AltSupport{cache: make(map[string]uint16)},
 		keepAlive:                DefaultKeepAlive,
@@ -525,7 +528,7 @@ func (xTransport *XTransport) Fetch(
 			}
 		}
 	}
-	header := map[string][]string{"User-Agent": {"dnscrypt-proxy"}}
+	header := map[string][]string{"User-Agent": {xTransport.UserAgent}}
 	if len(accept) > 0 {
 		header["Accept"] = []string{accept}
 	}
