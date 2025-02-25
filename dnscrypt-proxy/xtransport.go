@@ -396,7 +396,11 @@ func (xTransport *XTransport) resolveUsingResolvers(
 ) (ip net.IP, ttl time.Duration, err error) {
 	err = errors.New("Empty resolvers")
 	for i, resolver := range resolvers {
-		ip, ttl, err = xTransport.resolveUsingResolver(proto, host, resolver)
+		if resolver != "" && len(resolver) > 0 {
+			ip, ttl, err = xTransport.resolveUsingResolver(proto, host, resolver)
+		} else {
+			err = errors.New("Empty resolver!")
+		}
 		if err == nil {
 			dlog.Infof("Resolution succeeded with resolver %s[%s]", proto, resolver)
 			resolvers[0], resolvers[i] = resolvers[i], resolvers[0]
@@ -565,7 +569,12 @@ func (xTransport *XTransport) Fetch(
 	}
 	if body != nil {
 		req.ContentLength = int64(len(*body))
-		req.Body = io.NopCloser(bytes.NewReader(*body))
+		if req.ContentLength > 0 && req.ContentLength == int64(len(*body)) {
+			req.Body = io.NopCloser(bytes.NewReader(*body))
+		}
+	} else if req.Method == "POST" {
+		dlog.Notice("Post body is empty.")
+		return nil, 0, nil, 0, errors.New("POST Request Failed: Empty Body")
 	}
 	start := time.Now()
 	resp, err := client.Do(req)
@@ -637,22 +646,29 @@ func (xTransport *XTransport) Fetch(
 		}
 	}
 	tls := resp.TLS
-
-	var bodyReader io.ReadCloser = resp.Body
-	if compress && resp.Header.Get("Content-Encoding") == "gzip" {
-		bodyReader, err = gzip.NewReader(io.LimitReader(resp.Body, MaxHTTPBodyLength))
+	if tls == nil {
+		dlog.Notice("No TLS")
+	}
+	if resp.Body != nil {
+		var bodyReader io.ReadCloser = resp.Body
+		if compress && resp.Header.Get("Content-Encoding") == "gzip" {
+			bodyReader, err := gzip.NewReader(io.LimitReader(resp.Body, MaxHTTPBodyLength))
+			if err != nil {
+				return nil, statusCode, tls, rtt, err
+			}
+			defer bodyReader.Close()
+		}
+		bin, err := io.ReadAll(io.LimitReader(bodyReader, MaxHTTPBodyLength))
+		resp.Body.Close()
 		if err != nil {
 			return nil, statusCode, tls, rtt, err
 		}
-		defer bodyReader.Close()
+		return bin, statusCode, tls, rtt, err
 	}
-
-	bin, err := io.ReadAll(io.LimitReader(bodyReader, MaxHTTPBodyLength))
-	if err != nil {
-		return nil, statusCode, tls, rtt, err
+	if err == nil {
+		err = errors.New("Request error.")
 	}
-	resp.Body.Close()
-	return bin, statusCode, tls, rtt, err
+	return nil, statusCode, tls, rtt, err
 }
 
 func (xTransport *XTransport) GetWithCompression(
