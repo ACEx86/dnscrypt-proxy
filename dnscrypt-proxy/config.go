@@ -64,11 +64,8 @@ type Config struct {
 	QueryLog                 QueryLogConfig              `toml:"query_log"`
 	NxLog                    NxLogConfig                 `toml:"nx_log"`
 	BlockName                BlockNameConfig             `toml:"blocked_names"`
-	BlockNameLegacy          BlockNameConfigLegacy       `toml:"blacklist"`
-	WhitelistNameLegacy      WhitelistNameConfigLegacy   `toml:"whitelist"`
 	AllowedName              AllowedNameConfig           `toml:"allowed_names"`
 	BlockIP                  BlockIPConfig               `toml:"blocked_ips"`
-	BlockIPLegacy            BlockIPConfigLegacy         `toml:"ip_blacklist"`
 	AllowIP                  AllowIPConfig               `toml:"allowed_ips"`
 	ForwardFile              string                      `toml:"forwarding_rules"`
 	CloakFile                string                      `toml:"cloaking_rules"`
@@ -85,7 +82,6 @@ type Config struct {
 	SourceIPv4               bool                        `toml:"ipv4_servers"`
 	SourceIPv6               bool                        `toml:"ipv6_servers"`
 	MaxClients               uint32                      `toml:"max_clients"`
-	BootstrapResolversLegacy []string                    `toml:"fallback_resolvers"`
 	BootstrapResolvers       []string                    `toml:"bootstrap_resolvers"`
 	IgnoreSystemDNS          bool                        `toml:"ignore_system_dns"`
 	AllWeeklyRanges          map[string]WeeklyRangesStr  `toml:"schedules"`
@@ -200,18 +196,6 @@ type BlockNameConfig struct {
 	Format  string `toml:"log_format"`
 }
 
-type BlockNameConfigLegacy struct {
-	File    string `toml:"blacklist_file"`
-	LogFile string `toml:"log_file"`
-	Format  string `toml:"log_format"`
-}
-
-type WhitelistNameConfigLegacy struct {
-	File    string `toml:"whitelist_file"`
-	LogFile string `toml:"log_file"`
-	Format  string `toml:"log_format"`
-}
-
 type AllowedNameConfig struct {
 	File    string `toml:"allowed_names_file"`
 	LogFile string `toml:"log_file"`
@@ -220,12 +204,6 @@ type AllowedNameConfig struct {
 
 type BlockIPConfig struct {
 	File    string `toml:"blocked_ips_file"`
-	LogFile string `toml:"log_file"`
-	Format  string `toml:"log_format"`
-}
-
-type BlockIPConfigLegacy struct {
-	File    string `toml:"blacklist_file"`
 	LogFile string `toml:"log_file"`
 	Format  string `toml:"log_format"`
 }
@@ -544,15 +522,6 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 	proxy.nxLogFile = config.NxLog.File
 	proxy.nxLogFormat = config.NxLog.Format
 
-	if len(config.BlockName.File) > 0 && len(config.BlockNameLegacy.File) > 0 {
-		return errors.New("Don't specify both [blocked_names] and [blacklist] sections - Update your config file")
-	}
-	if len(config.BlockNameLegacy.File) > 0 {
-		dlog.Notice("Use of [blacklist] is deprecated - Update your config file")
-		config.BlockName.File = config.BlockNameLegacy.File
-		config.BlockName.Format = config.BlockNameLegacy.Format
-		config.BlockName.LogFile = config.BlockNameLegacy.LogFile
-	}
 	if len(config.BlockName.Format) == 0 {
 		config.BlockName.Format = "tsv"
 	} else {
@@ -565,15 +534,6 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 	proxy.blockNameFormat = config.BlockName.Format
 	proxy.blockNameLogFile = config.BlockName.LogFile
 
-	if len(config.AllowedName.File) > 0 && len(config.WhitelistNameLegacy.File) > 0 {
-		return errors.New("Don't specify both [whitelist] and [allowed_names] sections - Update your config file")
-	}
-	if len(config.WhitelistNameLegacy.File) > 0 {
-		dlog.Notice("Use of [whitelist] is deprecated - Update your config file")
-		config.AllowedName.File = config.WhitelistNameLegacy.File
-		config.AllowedName.Format = config.WhitelistNameLegacy.Format
-		config.AllowedName.LogFile = config.WhitelistNameLegacy.LogFile
-	}
 	if len(config.AllowedName.Format) == 0 {
 		config.AllowedName.Format = "tsv"
 	} else {
@@ -586,15 +546,6 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 	proxy.allowNameFormat = config.AllowedName.Format
 	proxy.allowNameLogFile = config.AllowedName.LogFile
 
-	if len(config.BlockIP.File) > 0 && len(config.BlockIPLegacy.File) > 0 {
-		return errors.New("Don't specify both [blocked_ips] and [ip_blacklist] sections - Update your config file")
-	}
-	if len(config.BlockIPLegacy.File) > 0 {
-		dlog.Notice("Use of [ip_blacklist] is deprecated - Update your config file")
-		config.BlockIP.File = config.BlockIPLegacy.File
-		config.BlockIP.Format = config.BlockIPLegacy.Format
-		config.BlockIP.LogFile = config.BlockIPLegacy.LogFile
-	}
 	if len(config.BlockIP.Format) == 0 {
 		config.BlockIP.Format = "tsv"
 	} else {
