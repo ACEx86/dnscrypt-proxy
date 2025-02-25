@@ -89,7 +89,7 @@ type Config struct {
 	LogMaxAge                int                         `toml:"log_files_max_age"`
 	LogMaxBackups            int                         `toml:"log_files_max_backups"`
 	TLSDisableSessionTickets bool                        `toml:"tls_disable_session_tickets"`
-	StartWithTLS12           bool                        `toml:"start_with_12"`
+	ForceTLS12:              bool                        `toml:"force_tls12"`
 	TLSCipherSuite           []uint16                    `toml:"tls_cipher_suite"`
 	TLSKeyLogFile            string                      `toml:"tls_key_log_file"`
 	NetprobeAddress          string                      `toml:"netprobe_address"`
@@ -144,7 +144,7 @@ func newConfig() Config {
 		LogMaxAge:                7,
 		LogMaxBackups:            1,
 		TLSDisableSessionTickets: false,
-		StartWithTLS12:           false,
+		ForceTLS12:               false,
 		TLSCipherSuite:           nil,
 		TLSKeyLogFile:            "",
 		NetprobeTimeout:          60,
@@ -686,7 +686,7 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 				nerr = NetProbe(proxy, DefaultBootstrapResolver, netprobeTimeout)
 			}
 			if nerr != nil {
-				return nerr
+				dlog.Notice(nerr)
 			}
 		}
 		for _, listenAddrStr := range proxy.listenAddresses {
@@ -927,7 +927,7 @@ func (config *Config) loadSource(proxy *Proxy, cfgSourceName string, cfgSource *
 		dlog.Infof("Downloading [%s] failed: %v, using cache file to startup", source.name, err)
 	}
 	proxy.sources = append(proxy.sources, source)
-	if config.StartWithTLS12 == true {
+	if config.ForceTLS12 == true {
 		proxy.xTransport.keepCipherSuite = true
 		proxy.xTransport.rebuildTransport()
 	}
