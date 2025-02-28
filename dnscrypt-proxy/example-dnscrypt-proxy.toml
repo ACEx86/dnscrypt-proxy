@@ -47,6 +47,13 @@ listen_addresses = ['127.0.0.1:53']
 max_clients = 250
 
 
+## Change the request user-agent
+## Default: 'dnscrypt-proxy'
+## Example Other: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0
+
+# user_agent = 'dnscrypt-proxy'
+
+
 ## Switch to a different system user after listening sockets have been created.
 ## Note (1): this feature is currently unsupported on Windows.
 ## Note (2): this feature is not compatible with systemd socket activation.
@@ -213,12 +220,15 @@ cert_refresh_delay = 240
 
 # tls_disable_session_tickets = false
 
-## Use TLS 1.2 with selected cipher suite and if it fail try TLS 1.3
-start_with_12 = false
+## Force start with TLS 1.2 and selected cipher suites use TLS 1.3 on fail.
+
+force_tls12 = false
+
 
 ## DoH: Use TLS 1.2 and specific cipher suite instead of the server preference
 ## 52393 = TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305
 ## 52392 = TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305
+## 49249 = TLS_ECDHE_RSA_WITH_ARIA_256_GCM_SHA384
 ## 49200 = TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
 ## 49199 = TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
 ## 49196 = TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
@@ -233,8 +243,9 @@ start_with_12 = false
 ##
 ## Keep tls_cipher_suite empty if you have issues fetching sources or
 ## connecting to some DoH servers.
+## 49195,49196,49199,49200,52392,52393
 
-tls_cipher_suite = [52392, 49199]
+tls_cipher_suite = [49195,49196,49199,49200,52392,52393]
 
 
 ## Log TLS key material to a file, for debugging purposes only.

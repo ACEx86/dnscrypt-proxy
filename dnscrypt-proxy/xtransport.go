@@ -240,8 +240,8 @@ func (xTransport *XTransport) rebuildTransport() {
 			for _, expectedSuiteID := range xTransport.tlsCipherSuite {
 				SuitesCount += 1
 				check := strconv.Itoa(int(expectedSuiteID))
-				if strings.Contains(tls13 , check) {
-					only13 += 1 
+				if strings.Contains(tls13, check) {
+					only13 += 1
 				} else {
 					break
 				}
@@ -255,13 +255,13 @@ func (xTransport *XTransport) rebuildTransport() {
 					xTransport.CSHandleError += 1
 				}
 			} else if xTransport.CSHandleError == 3 {
-				xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
+				xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
 				tlsClientConfig.CipherSuites = xTransport.tlsCipherSuite
 				xTransport.MaxVersion = tls.VersionTLS12
 				tlsClientConfig.MaxVersion = tls.VersionTLS12
 			}
 		} else if xTransport.CSHandleError == 3 {
-			xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
+			xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
 			tlsClientConfig.CipherSuites = xTransport.tlsCipherSuite
 			xTransport.MaxVersion = tls.VersionTLS12
 			tlsClientConfig.MaxVersion = tls.VersionTLS12
@@ -455,7 +455,7 @@ func (xTransport *XTransport) resolveAndUpdateCache(host string) error {
 				if err == nil {
 					break
 				}
-			}	
+			}
 		} else {
 			err = errors.New("Bootstrat resolvers is empty")
 			dlog.Notice(err)
@@ -495,7 +495,7 @@ func (xTransport *XTransport) resolveAndUpdateCache(host string) error {
 		} else {
 			dlog.Errorf("no IP address found for [%s]", host)
 		}
-	}else{
+	} else {
 		xTransport.saveCachedIP(host, foundIP, ttl)
 		dlog.Debugf("[%s] IP address [%s] added to the cache, valid for %v", host, foundIP, ttl)
 	}
@@ -608,7 +608,7 @@ func (xTransport *XTransport) Fetch(
 						xTransport.CSHandleError += 1
 						xTransport.keepCipherSuite = false
 					} else if xTransport.CSHandleError == 3 {
-						xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
+						xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
 					}
 				}
 				if rtt < timeout {
@@ -652,7 +652,7 @@ func (xTransport *XTransport) Fetch(
 	if resp.Body != nil {
 		var bodyReader io.ReadCloser = resp.Body
 		if compress && resp.Header.Get("Content-Encoding") == "gzip" {
-			bodyReader, err := gzip.NewReader(io.LimitReader(resp.Body, MaxHTTPBodyLength))
+			bodyReader, err = gzip.NewReader(io.LimitReader(resp.Body, MaxHTTPBodyLength))
 			if err != nil {
 				return nil, statusCode, tls, rtt, err
 			}
