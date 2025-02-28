@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -646,27 +647,36 @@ func (xTransport *XTransport) Fetch(
 		}
 	}
 	tls := resp.TLS
-	if tls == nil {
-		dlog.Notice("No TLS")
+	ctls := resp.TLS.CipherSuite
+	tls_version := tls.Version
+	tls13safe := "4865 4866 4867 4868 4869 49332 49333"
+	if tls == nil || ctls <= 0 {
+		err := errors.New("No TLS")
+		return nil, 0, nil, 0, err
 	}
-	if resp.Body != nil {
-		var bodyReader io.ReadCloser = resp.Body
-		if compress && resp.Header.Get("Content-Encoding") == "gzip" {
-			bodyReader, err = gzip.NewReader(io.LimitReader(resp.Body, MaxHTTPBodyLength))
+	if tls_version == uint16(xTransport.MaxVersion) && (slices.Contains(xTransport.transport.TLSClientConfig.CipherSuites, ctls) || (strings.Contains(tls13safe, strconv.Itoa(int(ctls))) && tls_version == 0x0304)) {
+		if resp.Body != nil {
+			var bodyReader io.ReadCloser = resp.Body
+			if compress && resp.Header.Get("Content-Encoding") == "gzip" {
+				bodyReader, err = gzip.NewReader(io.LimitReader(resp.Body, MaxHTTPBodyLength))
+				if err != nil {
+					return nil, statusCode, tls, rtt, err
+				}
+				defer bodyReader.Close()
+			}
+			bin, err := io.ReadAll(io.LimitReader(bodyReader, MaxHTTPBodyLength))
+			resp.Body.Close()
 			if err != nil {
 				return nil, statusCode, tls, rtt, err
 			}
-			defer bodyReader.Close()
+			return bin, statusCode, tls, rtt, err
 		}
-		bin, err := io.ReadAll(io.LimitReader(bodyReader, MaxHTTPBodyLength))
-		resp.Body.Close()
-		if err != nil {
-			return nil, statusCode, tls, rtt, err
-		}
-		return bin, statusCode, tls, rtt, err
+	} else {
+		err := errors.New("Unexpected TLS usage.")
+		return nil, 0, nil, 0, err
 	}
 	if err == nil {
-		err = errors.New("Request error.")
+		err = errors.New("Failled body.")
 	}
 	return nil, statusCode, tls, rtt, err
 }
