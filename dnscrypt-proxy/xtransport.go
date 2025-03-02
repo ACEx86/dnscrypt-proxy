@@ -231,8 +231,13 @@ func (xTransport *XTransport) rebuildTransport() {
 	} else {
 		tlsClientConfig.ClientSessionCache = tls.NewLRUClientSessionCache(10)
 	}
-	xTransport.MaxVersion = tls.VersionTLS13
-	tlsClientConfig.MaxVersion = tls.VersionTLS13
+	if xTransport.CSHandleError == 4 {
+		xTransport.MaxVersion = tls.VersionTLS12
+		tlsClientConfig.MaxVersion = tls.VersionTLS12
+	} else {
+		xTransport.MaxVersion = tls.VersionTLS13
+		tlsClientConfig.MaxVersion = tls.VersionTLS13
+	}
 	if xTransport.keepCipherSuite == true {
 		if xTransport.tlsCipherSuite != nil && len(xTransport.tlsCipherSuite) > 0 {
 			var tls13 = "198 199 4865 4866 4867 4868 4869 49332 49333"
@@ -594,11 +599,13 @@ func (xTransport *XTransport) Fetch(
 		xTransport.transport.CloseIdleConnections()
 		dlog.Debugf("HTTP client error: [%v] - closing idle connections", err)
 		dlog.Debugf("[%s]: [%s]", req.URL, err)
-		if xTransport.MaxVersion == tls.VersionTLS13 && xTransport.CSHandleError == 0 && rtt < timeout {
-			xTransport.CSHandleError = 3
-			xTransport.keepCipherSuite = true
-			xTransport.rebuildTransport()
-		} else {
+		if xTransport.MaxVersion == tls.VersionTLS13 {
+			if xTransport.CSHandleError == 0 && rtt < timeout {
+				xTransport.CSHandleError = 3
+				xTransport.keepCipherSuite = true
+				xTransport.rebuildTransport()
+			}
+		} else if xTransport.MaxVersion == tls.VersionTLS12 {
 			if xTransport.tlsCipherSuite != nil && xTransport.keepCipherSuite == true {
 				if strings.Contains(err.Error(), "handshake failure") || strings.Contains(err.Error(), "tls: error decoding message") {
 					dlog.Warnf(
@@ -608,14 +615,33 @@ func (xTransport *XTransport) Fetch(
 					if xTransport.CSHandleError == 1 {
 						xTransport.CSHandleError += 1
 						xTransport.keepCipherSuite = false
+						if rtt > timeout {
+							dlog.Info("Timeout exceeded")
+						}
+						xTransport.rebuildTransport()
 					} else if xTransport.CSHandleError == 3 {
 						xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
+						if rtt > timeout {
+							dlog.Info("Timeout exceeded")
+						}
+						dlog.Info("TLS 1.3 failed or is unsupported and the configured cipher suite failed. Adding more Cipher Suites for TLS 1.2")
+						xTransport.rebuildTransport()
+					} else if xTransport.CSHandleError == 4 {
+						xTransport.CSHandleError = 0
+						xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
+						if rtt > timeout {
+							dlog.Info("Timeout exceeded")
+						}
+						dlog.Info("Server used TLS 1.2 seem to have failed. Adding more Cipher Suites for TLS 1.2")
+						xTransport.rebuildTransport()
 					}
 				}
-				if rtt < timeout {
-					xTransport.rebuildTransport()
-				}
 			}
+			if rtt > timeout {
+				dlog.Info("Timeout exceeded")
+			}
+		} else {
+			dlog.Warn("Unexpected TLS Version.")
 		}
 		return nil, statusCode, nil, rtt, err
 	}
@@ -646,39 +672,52 @@ func (xTransport *XTransport) Fetch(
 			xTransport.altSupport.Unlock()
 		}
 	}
-	tls := resp.TLS
-	ctls := resp.TLS.CipherSuite
-	tls_version := tls.Version
-	tls13safe := "4865 4866 4867 4868 4869 49332 49333"
-	if tls == nil || ctls <= 0 {
-		err := errors.New("No TLS")
-		return nil, 0, nil, 0, err
-	}
-	if tls_version == uint16(xTransport.MaxVersion) && (slices.Contains(xTransport.transport.TLSClientConfig.CipherSuites, ctls) || (strings.Contains(tls13safe, strconv.Itoa(int(ctls))) && tls_version == 0x0304)) {
-		if resp.Body != nil {
-			var bodyReader io.ReadCloser = resp.Body
-			if compress && resp.Header.Get("Content-Encoding") == "gzip" {
-				bodyReader, err = gzip.NewReader(io.LimitReader(resp.Body, MaxHTTPBodyLength))
+	if resp.TLS != nil {
+		tls := resp.TLS
+		current_tls := resp.TLS.CipherSuite
+		tls_version := tls.Version
+		tls13_safe := "4865 4866 4867 4868 4869 49332 49333"
+		if tls == nil || current_tls <= 0 {
+			err := errors.New("No TLS")
+			return nil, 0, nil, 0, err
+		}
+		if tls_version == uint16(xTransport.MaxVersion) && (slices.Contains(xTransport.transport.TLSClientConfig.CipherSuites, current_tls) || (strings.Contains(tls13_safe, strconv.Itoa(int(current_tls))) && tls_version == 0x0304)) {
+			if resp.Body != nil {
+				var bodyReader io.ReadCloser = resp.Body
+				if compress && resp.Header.Get("Content-Encoding") == "gzip" {
+					bodyReader, err = gzip.NewReader(io.LimitReader(resp.Body, MaxHTTPBodyLength))
+					if err != nil {
+						return nil, statusCode, tls, rtt, err
+					}
+					defer bodyReader.Close()
+				}
+				bin, err := io.ReadAll(io.LimitReader(bodyReader, MaxHTTPBodyLength))
+				resp.Body.Close()
 				if err != nil {
 					return nil, statusCode, tls, rtt, err
 				}
-				defer bodyReader.Close()
+				return bin, statusCode, tls, rtt, err
 			}
-			bin, err := io.ReadAll(io.LimitReader(bodyReader, MaxHTTPBodyLength))
-			resp.Body.Close()
-			if err != nil {
-				return nil, statusCode, tls, rtt, err
+		} else {
+			if xTransport.CSHandleError == 4 && xTransport.tlsCipherSuite == nil {
+				xTransport.tlsCipherSuite = []uint16{current_tls}
+				xTransport.transport.TLSClientConfig.CipherSuites = []uint16{current_tls}
+				xTransport.keepCipherSuite = true
+				dlog.Infof("No TLS configured. Adding connections specified TLS to Cipher Suite:  %v", xTransport.tlsCipherSuite)
+				xTransport.rebuildTransport()
+			} else {
+				err := errors.New("Unexpected TLS usage.")
+				return nil, 0, nil, 0, err
 			}
-			return bin, statusCode, tls, rtt, err
 		}
 	} else {
-		err := errors.New("Unexpected TLS usage.")
+		err := errors.New("Connections TLS is nil.")
 		return nil, 0, nil, 0, err
 	}
 	if err == nil {
 		err = errors.New("Failled body.")
 	}
-	return nil, statusCode, tls, rtt, err
+	return nil, statusCode, nil, rtt, err
 }
 
 func (xTransport *XTransport) GetWithCompression(

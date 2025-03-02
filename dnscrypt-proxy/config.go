@@ -89,7 +89,7 @@ type Config struct {
 	LogMaxAge                int                         `toml:"log_files_max_age"`
 	LogMaxBackups            int                         `toml:"log_files_max_backups"`
 	TLSDisableSessionTickets bool                        `toml:"tls_disable_session_tickets"`
-	ForceTLS12:              bool                        `toml:"force_tls12"`
+	ForceTLS12               bool                        `toml:"force_tls12"`
 	TLSCipherSuite           []uint16                    `toml:"tls_cipher_suite"`
 	TLSKeyLogFile            string                      `toml:"tls_key_log_file"`
 	NetprobeAddress          string                      `toml:"netprobe_address"`
@@ -369,7 +369,11 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 		proxy.xTransport.UserAgent = config.UserAgent
 	}
 	proxy.xTransport.tlsDisableSessionTickets = config.TLSDisableSessionTickets
-	proxy.xTransport.tlsCipherSuite = config.TLSCipherSuite
+	if len(config.TLSCipherSuite) > 0 {
+		proxy.xTransport.tlsCipherSuite = config.TLSCipherSuite
+	} else {
+		proxy.xTransport.CSHandleError = 4
+	}
 	proxy.xTransport.mainProto = proxy.mainProto
 	proxy.xTransport.http3 = config.HTTP3
 	if len(config.BootstrapResolvers) > 0 {
@@ -920,7 +924,7 @@ func (config *Config) loadSource(proxy *Proxy, cfgSourceName string, cfgSource *
 		cfgSource.Prefix,
 	)
 	if err != nil {
-		if len(source.bin) <= 0 {
+		if source.bin == nil || len(source.bin) <= 0 {
 			dlog.Criticalf("Unable to retrieve source [%s]: [%s]", cfgSourceName, err)
 			return err
 		}
