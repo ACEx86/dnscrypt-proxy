@@ -44,6 +44,7 @@ const (
 type CachedIPItem struct {
 	ip         net.IP
 	expiration *time.Time
+	updatingUntil *time.Time
 }
 
 type CachedIPs struct {
@@ -111,34 +112,58 @@ func ParseIP(ipStr string) net.IP {
 	return net.ParseIP(strings.TrimRight(strings.TrimLeft(ipStr, "["), "]"))
 }
 
-// If ttl < 0, never expire
-// Otherwise, ttl is set to max(ttl, MinResolverIPTTL)
+// Mark an entry as being updated
+func (xTransport *XTransport) markUpdatingCachedIP(host string) {
+	xTransport.cachedIPs.Lock()
+	item, ok := xTransport.cachedIPs.cache[host]
+	if ok {
+		now := time.Now()
+		until := now.Add(xTransport.timeout)
+		item.updatingUntil = &until
+		xTransport.cachedIPs.cache[host] = item
+	}
+	item = nil
+	xTransport.cachedIPs.Unlock()
+}
+
 func (xTransport *XTransport) saveCachedIP(host string, ip net.IP, ttl time.Duration) {
-	item := &CachedIPItem{ip: ip, expiration: nil}
+	item := &CachedIPItem{ip: ip, expiration: nil, updatingUntil: nil}
 	if ttl >= 0 {
 		if ttl < MinResolverIPTTL {
 			ttl = MinResolverIPTTL
+		} else if ttl > SystemResolverIPTTL {
+			ttl = SystemResolverIPTTL
 		}
-		expiration := time.Now().Add(ttl)
-		item.expiration = &expiration
 	}
+	expiration := time.Now().Add(ttl)
+	item.expiration = &expiration
 	xTransport.cachedIPs.Lock()
 	xTransport.cachedIPs.cache[host] = item
 	xTransport.cachedIPs.Unlock()
 }
 
-func (xTransport *XTransport) loadCachedIP(host string) (ip net.IP, expired bool) {
-	ip, expired = nil, false
+func (xTransport *XTransport) loadCachedIP(host string) (ip net.IP, expired bool, updating bool) {
+	ip, expired, updating = nil, false, false
 	xTransport.cachedIPs.RLock()
 	item, ok := xTransport.cachedIPs.cache[host]
 	xTransport.cachedIPs.RUnlock()
 	if !ok {
 		return
 	}
+	if item.ip == nil || len(item.ip) <= 0 {
+		return
+	}
 	ip = item.ip
 	expiration := item.expiration
 	if expiration != nil && time.Until(*expiration) < 0 {
 		expired = true
+		if item.updatingUntil != nil {
+			if time.Until(*item.updatingUntil) > 0 {
+				updating = true
+			} else {
+				updating = false
+			}
+		}
 	}
 	return
 }
@@ -429,6 +454,7 @@ func (xTransport *XTransport) resolveAndUpdateCache(host string) error {
 	if cachedIP != nil && !expired {
 		return nil
 	}
+	xTransport.markUpdatingCachedIP(host)
 	var foundIP net.IP
 	var ttl time.Duration
 	var err error
@@ -526,7 +552,9 @@ func (xTransport *XTransport) Fetch(
 	}
 	host, port := ExtractHostAndPort(url.Host, 443)
 	hasAltSupport := false
-	if xTransport.h3Transport != nil {
+	ish2 := true
+	if xTransport.http3 == true && xTransport.h3Transport != nil {
+		ish2 = false
 		xTransport.altSupport.RLock()
 		var altPort uint16
 		altPort, hasAltSupport = xTransport.altSupport.cache[url.Host]
@@ -574,7 +602,11 @@ func (xTransport *XTransport) Fetch(
 		Close:  false,
 	}
 	if body != nil {
-		req.ContentLength = int64(len(*body))
+		if int64(len(*body)) <= int64(MaxDNSPacketSize) {
+			req.ContentLength = int64(len(*body))
+		} else {
+			return nil, 0, nil, 0, errors.New("request is bigger than allowed dns packet size")
+		}
 		if req.ContentLength > 0 && req.ContentLength == int64(len(*body)) {
 			req.Body = io.NopCloser(bytes.NewReader(*body))
 		}
@@ -585,56 +617,63 @@ func (xTransport *XTransport) Fetch(
 	start := time.Now()
 	resp, err := client.Do(req)
 	rtt := time.Since(start)
-	var statusCode int
+	statusCode := 503
 	if resp != nil {
 		if resp.StatusCode < 200 || resp.StatusCode > 299 {
 			err = errors.New(resp.Status)
 		} else {
 			statusCode = resp.StatusCode
 		}
-	} else if err == nil {
-		err = errors.New("Webserver returned an error")
-	}
+		if strings.Contains(resp.Proto, "/2") && ish2 == false || strings.Contains(resp.Proto, "/3") && ish2 == true || strings.Contains(resp.Proto, "/1") {
+			err = errors.New("protocol miss match")
+			return nil, 0, nil, 0, err
+		}
+	} else if err == nil {err = errors.New("Webserver returned an error")}
 	if err != nil {
 		xTransport.transport.CloseIdleConnections()
 		dlog.Debugf("HTTP client error: [%v] - closing idle connections", err)
 		dlog.Debugf("[%s]: [%s]", req.URL, err)
 		if xTransport.MaxVersion == tls.VersionTLS13 {
 			if xTransport.CSHandleError == 0 && rtt < timeout {
-				xTransport.CSHandleError = 3
+				if xTransport.tlsCipherSuite == nil {
+					xTransport.CSHandleError = 3
+				} else {
+					xTransport.CSHandleError = 4
+				}
 				xTransport.keepCipherSuite = true
 				xTransport.rebuildTransport()
 			}
 		} else if xTransport.MaxVersion == tls.VersionTLS12 {
-			if xTransport.tlsCipherSuite != nil && xTransport.keepCipherSuite == true {
+			if xTransport.keepCipherSuite == true {
 				if strings.Contains(err.Error(), "handshake failure") || strings.Contains(err.Error(), "tls: error decoding message") {
-					dlog.Warnf(
-						"TLS handshake failure with cipher suite: %v - Try changing or deleting the tls_cipher_suite value in the configuration file",
-						xTransport.tlsCipherSuite,
-					)
-					if xTransport.CSHandleError == 1 {
-						xTransport.CSHandleError += 1
+					if xTransport.CSHandleError == 0 || xTransport.CSHandleError == 2 || xTransport.CSHandleError == 4 {
+						if xTransport.CSHandleError == 0 {
+							dlog.Warnf("TLS 1.2 configured cipher suite failed. Adding more Cipher Suites - You can try changing or deleting the tls_cipher_suite value in the configuration file")
+							xTransport.CSHandleError = 1
+						} else if xTransport.CSHandleError == 2 {
+							dlog.Info("Dynamically adjusted server used Cipher Suite have failed. Adding more Cipher Suites for TLS 1.2")
+							xTransport.CSHandleError = 1
+						} else {
+							dlog.Warnf("TLS handshake failure with cipher suite: %v - Try changing or deleting the tls_cipher_suite value in the configuration file", xTransport.tlsCipherSuite)
+						}
+						xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
+						xTransport.keepCipherSuite = true
+					} else if xTransport.CSHandleError == 1 {
+						dlog.Info("TLS 1.2 configured cipher suites failed. Upgrading to TLS 1.3")
 						xTransport.keepCipherSuite = false
-						if rtt > timeout {
-							dlog.Info("Timeout exceeded")
-						}
-						xTransport.rebuildTransport()
-					} else if xTransport.CSHandleError == 3 {
-						xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
-						if rtt > timeout {
-							dlog.Info("Timeout exceeded")
-						}
-						dlog.Info("TLS 1.3 failed or is unsupported and the configured cipher suite failed. Adding more Cipher Suites for TLS 1.2")
-						xTransport.rebuildTransport()
-					} else if xTransport.CSHandleError == 4 {
 						xTransport.CSHandleError = 0
-						xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
-						if rtt > timeout {
-							dlog.Info("Timeout exceeded")
+					} else if xTransport.CSHandleError == 3 {
+						if resp != nil && xTransport.tlsCipherSuite == nil {
+							xTransport.tlsCipherSuite = []uint16{resp.TLS.CipherSuite}
+							xTransport.transport.TLSClientConfig.CipherSuites = []uint16{resp.TLS.CipherSuite}
+							xTransport.keepCipherSuite = true
+							xTransport.CSHandleError = 2
+							dlog.Infof("No TLS configured. Adding connections specified TLS to Cipher Suite:  %v", xTransport.tlsCipherSuite)
+						} else {
+							dlog.Warn("No TLS configured and server TLS is not applicable for now.")
 						}
-						dlog.Info("Server used TLS 1.2 seem to have failed. Adding more Cipher Suites for TLS 1.2")
-						xTransport.rebuildTransport()
 					}
+					xTransport.rebuildTransport()
 				}
 			}
 			if rtt > timeout {
@@ -645,7 +684,7 @@ func (xTransport *XTransport) Fetch(
 		}
 		return nil, statusCode, nil, rtt, err
 	}
-	if xTransport.h3Transport != nil && !hasAltSupport {
+	if xTransport.h3Transport != nil && !hasAltSupport && ish2 == false && resp != nil { {
 		if alt, found := resp.Header["Alt-Svc"]; found {
 			dlog.Debugf("Alt-Svc [%s]: [%s]", url.Host, alt)
 			altPort := uint16(port & 0xffff)
@@ -672,7 +711,7 @@ func (xTransport *XTransport) Fetch(
 			xTransport.altSupport.Unlock()
 		}
 	}
-	if resp.TLS != nil {
+	if resp != nil {
 		tls := resp.TLS
 		current_tls := resp.TLS.CipherSuite
 		tls_version := tls.Version
@@ -699,19 +738,40 @@ func (xTransport *XTransport) Fetch(
 				return bin, statusCode, tls, rtt, err
 			}
 		} else {
-			if xTransport.CSHandleError == 4 && xTransport.tlsCipherSuite == nil {
-				xTransport.tlsCipherSuite = []uint16{current_tls}
-				xTransport.transport.TLSClientConfig.CipherSuites = []uint16{current_tls}
-				xTransport.keepCipherSuite = true
-				dlog.Infof("No TLS configured. Adding connections specified TLS to Cipher Suite:  %v", xTransport.tlsCipherSuite)
-				xTransport.rebuildTransport()
+			if xTransport.CSHandleError == 3 && xTransport.tlsCipherSuite == nil && tls_version == 0x0303 {
+				if resp.TLS != nil {
+					if !strings.Contains(req.URL.String(), ".md") {
+						xTransport.tlsCipherSuite = []uint16{resp.TLS.CipherSuite}
+						xTransport.transport.TLSClientConfig.CipherSuites = []uint16{resp.TLS.CipherSuite}
+						xTransport.keepCipherSuite = true
+						xTransport.CSHandleError = 2
+						dlog.Infof("No TLS configured. Adding connections specified TLS to Cipher Suite:  %v", xTransport.tlsCipherSuite)
+						xTransport.rebuildTransport()
+					}
+					var bodyReader io.ReadCloser = resp.Body
+					if compress && resp.Header.Get("Content-Encoding") == "gzip" {
+						bodyReader, err = gzip.NewReader(io.LimitReader(resp.Body, MaxHTTPBodyLength))
+						if err != nil {
+							return nil, statusCode, tls, rtt, err
+						}
+						defer bodyReader.Close()
+					}
+					bin, err := io.ReadAll(io.LimitReader(bodyReader, MaxHTTPBodyLength))
+					resp.Body.Close()
+					if err != nil {
+						return nil, statusCode, tls, rtt, err
+					}
+					return bin, statusCode, tls, rtt, err
+				} else {
+					dlog.Warn("No TLS configured and server TLS is not applicable for now.")
+				}
 			} else {
 				err := errors.New("Unexpected TLS usage.")
 				return nil, 0, nil, 0, err
 			}
 		}
 	} else {
-		err := errors.New("Connections TLS is nil.")
+		err := errors.New("Response is nil.")
 		return nil, 0, nil, 0, err
 	}
 	if err == nil {

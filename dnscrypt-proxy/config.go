@@ -372,7 +372,9 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 	if len(config.TLSCipherSuite) > 0 {
 		proxy.xTransport.tlsCipherSuite = config.TLSCipherSuite
 	} else {
-		proxy.xTransport.CSHandleError = 4
+		if config.ForceTLS12 == true {
+			proxy.xTransport.CSHandleError = 3
+		}
 	}
 	proxy.xTransport.mainProto = proxy.mainProto
 	proxy.xTransport.http3 = config.HTTP3
@@ -408,7 +410,9 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 		proxy.xTransport.proxyDialer = &proxyDialer
 		proxy.mainProto = "tcp"
 	}
-
+	if config.ForceTLS12 == true {
+		proxy.xTransport.keepCipherSuite = true
+	}
 	proxy.xTransport.rebuildTransport()
 
 	if md.IsDefined("refused_code_in_responses") {
@@ -912,28 +916,31 @@ func (config *Config) loadSource(proxy *Proxy, cfgSourceName string, cfgSource *
 	if cfgSource.RefreshDelay <= 0 {
 		cfgSource.RefreshDelay = 72
 	}
-	cfgSource.RefreshDelay = Min(169, Max(25, cfgSource.RefreshDelay))
-	source, err := NewSource(
-		cfgSourceName,
-		proxy.xTransport,
-		cfgSource.URLs,
-		cfgSource.MinisignKeyStr,
-		cfgSource.CacheFile,
-		cfgSource.FormatStr,
-		time.Duration(cfgSource.RefreshDelay)*time.Hour,
-		cfgSource.Prefix,
-	)
-	if err != nil {
-		if source.bin == nil || len(source.bin) <= 0 {
-			dlog.Criticalf("Unable to retrieve source [%s]: [%s]", cfgSourceName, err)
-			return err
+	for i := 0; i < 4; i++ {
+		cfgSource.RefreshDelay = Min(169, Max(25, cfgSource.RefreshDelay))
+		source, err := NewSource(
+			cfgSourceName,
+			proxy.xTransport,
+			cfgSource.URLs,
+			cfgSource.MinisignKeyStr,
+			cfgSource.CacheFile,
+			cfgSource.FormatStr,
+			time.Duration(cfgSource.RefreshDelay)*time.Hour,
+			cfgSource.Prefix,
+		)
+		if err != nil {
+			if source.bin == nil || len(source.bin) <= 0 {
+				dlog.Criticalf("Unable to retrieve source [%s]: [%s]", cfgSourceName, err)
+				if strings.Contains(err.Error(), "handshake failure") {
+					continue
+				} else {
+					return err
+				}
+			}
+			dlog.Infof("Downloading [%s] failed: %v, using cache file to startup", source.name, err)
 		}
-		dlog.Infof("Downloading [%s] failed: %v, using cache file to startup", source.name, err)
-	}
-	proxy.sources = append(proxy.sources, source)
-	if config.ForceTLS12 == true {
-		proxy.xTransport.keepCipherSuite = true
-		proxy.xTransport.rebuildTransport()
+		proxy.sources = append(proxy.sources, source)
+		break
 	}
 	return nil
 }
