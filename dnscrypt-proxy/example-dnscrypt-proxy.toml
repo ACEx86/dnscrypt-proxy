@@ -47,9 +47,9 @@ listen_addresses = ['127.0.0.1:53']
 max_clients = 250
 
 
-## Change the request user-agent
+## Change the user-agent
 ## Default: 'dnscrypt-proxy'
-## Example Other: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0
+## Example Other: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:137.0) Gecko/20100101 Firefox/137.0
 
 # user_agent = 'dnscrypt-proxy'
 
@@ -291,16 +291,19 @@ bootstrap_resolvers = ['9.9.9.11:53', '8.8.8.8:53']
 
 ## When internal DNS resolution is required, for example to retrieve
 ## the resolvers list:
-##
+##   ( Note that the resolutions is called on protocol order TCP->All Ips UDP->All Ips )
 ## - queries will be sent to dnscrypt-proxy itself, if it is already
 ##   running with active servers (*)
-## - or else, queries will be sent to fallback servers
-## - finally, if `ignore_system_dns` is `false`, queries will be sent
+## - or else, queries will be sent to fallback servers if `no_fallback` is false
+##   and stamps list exist, else the bootstrap resolver will be used even if this value is true
+##   ( note that if the bootstrap resolver is empty a default of 9.9.9.9 is used )
+## - finally, if `no_fallback` and `ignore_system_dns` is `false` queries will be sent
 ##   to the system DNS
 ##
 ## (*) this is incompatible with systemd sockets.
 ## `listen_addrs` must not be empty.
 
+no_fallback = true
 ignore_system_dns = true
 
 
