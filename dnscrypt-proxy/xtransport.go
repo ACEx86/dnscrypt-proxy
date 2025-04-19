@@ -16,7 +16,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,8 +41,8 @@ const (
 )
 
 type CachedIPItem struct {
-	ip         net.IP
-	expiration *time.Time
+	ip            net.IP
+	expiration    *time.Time
 	updatingUntil *time.Time
 }
 
@@ -68,6 +67,7 @@ type XTransport struct {
 	internalResolvers        []string
 	bootstrapResolvers       []string
 	mainProto                string
+	NoFallback               bool
 	ignoreSystemDNS          bool
 	internalResolverReady    bool
 	useIPv4                  bool
@@ -96,6 +96,7 @@ func NewXTransport() *XTransport {
 		timeout:                  DefaultTimeout,
 		bootstrapResolvers:       []string{DefaultBootstrapResolver},
 		mainProto:                "",
+		NoFallback:               true,
 		ignoreSystemDNS:          true,
 		useIPv4:                  true,
 		useIPv6:                  false,
@@ -155,7 +156,7 @@ func (xTransport *XTransport) loadCachedIP(host string) (ip net.IP, expired bool
 	}
 	ip = item.ip
 	expiration := item.expiration
-	if expiration != nil && time.Until(*expiration) < 0 {
+	if expiration != nil && time.Until(*expiration) <= 0 {
 		expired = true
 		if item.updatingUntil != nil {
 			if time.Until(*item.updatingUntil) > 0 {
@@ -187,7 +188,7 @@ func (xTransport *XTransport) rebuildTransport() {
 			ipOnly := host
 			// resolveAndUpdateCache() is always called in `Fetch()` before the `Dial()`
 			// method is used, so that a cached entry must be present at this point.
-			cachedIP, _ := xTransport.loadCachedIP(host)
+			cachedIP, _, _ := xTransport.loadCachedIP(host)
 			if cachedIP != nil {
 				if ipv4 := cachedIP.To4(); ipv4 != nil {
 					ipOnly = ipv4.String()
@@ -309,7 +310,7 @@ func (xTransport *XTransport) rebuildTransport() {
 			dlog.Debugf("Dialing for H3: [%v]", addrStr)
 			host, port := ExtractHostAndPort(addrStr, stamps.DefaultPort)
 			ipOnly := host
-			cachedIP, _ := xTransport.loadCachedIP(host)
+			cachedIP, _, _ := xTransport.loadCachedIP(host)
 			network := "udp4"
 			if cachedIP != nil {
 				if ipv4 := cachedIP.To4(); ipv4 != nil {
@@ -443,15 +444,15 @@ func (xTransport *XTransport) resolveUsingResolvers(
 }
 
 // If a name is not present in the cache, resolve the name and update the cache
-func (xTransport *XTransport) resolveAndUpdateCache(host string) error {
+func (xTransport *XTransport) resolveAndUpdateCache(host string, is_STAMP bool) error {
 	if xTransport.proxyDialer != nil || xTransport.httpProxyFunction != nil {
 		return nil
 	}
 	if ParseIP(host) != nil {
 		return nil
 	}
-	cachedIP, expired := xTransport.loadCachedIP(host)
-	if cachedIP != nil && !expired {
+	cachedIP, expired, updating := xTransport.loadCachedIP(host)
+	if cachedIP != nil && (!expired || updating) {
 		return nil
 	}
 	xTransport.markUpdatingCachedIP(host)
@@ -472,8 +473,30 @@ func (xTransport *XTransport) resolveAndUpdateCache(host string) error {
 	} else {
 		err = errors.New("Service is not usable yet")
 		dlog.Notice(err)
+		if xTransport.NoFallback && is_STAMP {
+			if xTransport.bootstrapResolvers != nil && len(xTransport.bootstrapResolvers) > 0 {
+				dlog.Info("!! - - -  Starting bootstrap resolvers  - - - !!")
+				for _, proto := range protos {
+					if err != nil {
+						dlog.Noticef(
+							"Resolving server host [%s] using bootstrap resolvers over %s",
+							host,
+							proto,
+						)
+					}
+					dlog.Infof("PROTO:  %v  		|| HOST:  %v  		||  RESOLVERS:  %v", proto, host, xTransport.bootstrapResolvers)
+					foundIP, ttl, err = xTransport.resolveUsingResolvers(proto, host, xTransport.bootstrapResolvers)
+					if err == nil {
+						break
+					}
+				}
+			} else {
+				err = errors.New("Bootstrat resolvers is empty and STAMPS is not available")
+				dlog.Notice(err)
+			}
+		}
 	}
-	if err != nil {
+	if err != nil && !xTransport.NoFallback {
 		if xTransport.bootstrapResolvers != nil && len(xTransport.bootstrapResolvers) > 0 {
 			for _, proto := range protos {
 				if err != nil {
@@ -509,6 +532,8 @@ func (xTransport *XTransport) resolveAndUpdateCache(host string) error {
 	}
 	if ttl < MinResolverIPTTL {
 		ttl = MinResolverIPTTL
+	} else if ttl > SystemResolverIPTTL {
+		ttl = SystemResolverIPTTL
 	}
 	if err != nil {
 		if cachedIP != nil {
@@ -552,9 +577,9 @@ func (xTransport *XTransport) Fetch(
 	}
 	host, port := ExtractHostAndPort(url.Host, 443)
 	hasAltSupport := false
-	ish2 := true
+	is_http2 := true
 	if xTransport.http3 == true && xTransport.h3Transport != nil {
-		ish2 = false
+		is_http2 = false
 		xTransport.altSupport.RLock()
 		var altPort uint16
 		altPort, hasAltSupport = xTransport.altSupport.cache[url.Host]
@@ -563,6 +588,8 @@ func (xTransport *XTransport) Fetch(
 			if int(altPort) == port {
 				client.Transport = xTransport.h3Transport
 				dlog.Debugf("Using HTTP/3 transport for [%s]", url.Host)
+			} else {
+				hasAltSupport = false
 			}
 		}
 	}
@@ -585,7 +612,11 @@ func (xTransport *XTransport) Fetch(
 	if xTransport.proxyDialer == nil && strings.HasSuffix(host, ".onion") {
 		return nil, 0, nil, 0, errors.New("Onion service is not reachable without Tor")
 	}
-	if err := xTransport.resolveAndUpdateCache(host); err != nil {
+	is_STAMP := false
+	if strings.Contains(url.String(), ".md") {
+		is_STAMP = true
+	}
+	if err := xTransport.resolveAndUpdateCache(host, is_STAMP); err != nil {
 		dlog.Errorf(
 			"Unable to resolve [%v] - Make sure that the system resolver works, or that `bootstrap_resolvers` has been set to resolvers that can be reached",
 			host,
@@ -609,10 +640,11 @@ func (xTransport *XTransport) Fetch(
 		}
 		if req.ContentLength > 0 && req.ContentLength == int64(len(*body)) {
 			req.Body = io.NopCloser(bytes.NewReader(*body))
+		} else {
+			return nil, 0, nil, 0, errors.New("Request failed: Incorrect request size")
 		}
 	} else if req.Method == "POST" {
-		dlog.Notice("Post body is empty.")
-		return nil, 0, nil, 0, errors.New("POST Request Failed: Empty Body")
+		return nil, 0, nil, 0, errors.New("Request failed: Empty body")
 	}
 	start := time.Now()
 	resp, err := client.Do(req)
@@ -624,11 +656,13 @@ func (xTransport *XTransport) Fetch(
 		} else {
 			statusCode = resp.StatusCode
 		}
-		if strings.Contains(resp.Proto, "/2") && ish2 == false || strings.Contains(resp.Proto, "/3") && ish2 == true || strings.Contains(resp.Proto, "/1") {
+		if strings.Contains(resp.Proto, "/2") && is_http2 == false || strings.Contains(resp.Proto, "/3") && is_http2 == true || strings.Contains(resp.Proto, "/1") {
 			err = errors.New("protocol miss match")
 			return nil, 0, nil, 0, err
 		}
-	} else if err == nil {err = errors.New("Webserver returned an error")}
+	} else if err == nil {
+		err = errors.New("Webserver returned an error")
+	}
 	if err != nil {
 		xTransport.transport.CloseIdleConnections()
 		dlog.Debugf("HTTP client error: [%v] - closing idle connections", err)
@@ -684,99 +718,125 @@ func (xTransport *XTransport) Fetch(
 		}
 		return nil, statusCode, nil, rtt, err
 	}
-	if xTransport.h3Transport != nil && !hasAltSupport && ish2 == false && resp != nil { {
-		if alt, found := resp.Header["Alt-Svc"]; found {
-			dlog.Debugf("Alt-Svc [%s]: [%s]", url.Host, alt)
-			altPort := uint16(port & 0xffff)
-			for i, xalt := range alt {
-				for j, v := range strings.Split(xalt, ";") {
-					if i >= 8 || j >= 16 {
-						break
-					}
-					v = strings.TrimSpace(v)
-					if strings.HasPrefix(v, "h3=\":") {
-						v = strings.TrimPrefix(v, "h3=\":")
-						v = strings.TrimSuffix(v, "\"")
-						if xAltPort, err := strconv.ParseUint(v, 10, 16); err == nil && xAltPort <= 65535 {
-							altPort = uint16(xAltPort)
-							dlog.Debugf("Using HTTP/3 for [%s]", url.Host)
+	if !is_http2 {
+		if xTransport.h3Transport != nil && !hasAltSupport && resp != nil {
+			if alt, found := resp.Header["Alt-Svc"]; found {
+				dlog.Debugf("Alt-Svc [%s]: [%s]", url.Host, alt)
+				altPort := uint16(port & 0xffff)
+				for i, xalt := range alt {
+					for j, v := range strings.Split(xalt, ";") {
+						if i >= 8 || j >= 16 {
 							break
+						}
+						v = strings.TrimSpace(v)
+						if strings.HasPrefix(v, "h3=\":") {
+							v = strings.TrimPrefix(v, "h3=\":")
+							v = strings.TrimSuffix(v, "\"")
+							if xAltPort, err := strconv.ParseUint(v, 10, 16); err == nil && xAltPort <= 65535 {
+								altPort = uint16(xAltPort)
+								dlog.Debugf("Using HTTP/3 for [%s]", url.Host)
+								break
+							}
 						}
 					}
 				}
+				xTransport.altSupport.Lock()
+				xTransport.altSupport.cache[url.Host] = altPort
+				dlog.Debugf("Caching altPort for [%v]", url.Host)
+				xTransport.altSupport.Unlock()
 			}
-			xTransport.altSupport.Lock()
-			xTransport.altSupport.cache[url.Host] = altPort
-			dlog.Debugf("Caching altPort for [%v]", url.Host)
-			xTransport.altSupport.Unlock()
 		}
 	}
 	if resp != nil {
 		tls := resp.TLS
 		current_tls := resp.TLS.CipherSuite
 		tls_version := tls.Version
-		tls13_safe := "4865 4866 4867 4868 4869 49332 49333"
+		tls13_safe := "4865 4866 4868"
+		tls12_safe := "52393 49200 49199 49196 49195"
 		if tls == nil || current_tls <= 0 {
 			err := errors.New("No TLS")
 			return nil, 0, nil, 0, err
 		}
-		if tls_version == uint16(xTransport.MaxVersion) && (slices.Contains(xTransport.transport.TLSClientConfig.CipherSuites, current_tls) || (strings.Contains(tls13_safe, strconv.Itoa(int(current_tls))) && tls_version == 0x0304)) {
-			if resp.Body != nil {
-				var bodyReader io.ReadCloser = resp.Body
-				if compress && resp.Header.Get("Content-Encoding") == "gzip" {
-					bodyReader, err = gzip.NewReader(io.LimitReader(resp.Body, MaxHTTPBodyLength))
-					if err != nil {
-						return nil, statusCode, tls, rtt, err
-					}
-					defer bodyReader.Close()
-				}
-				bin, err := io.ReadAll(io.LimitReader(bodyReader, MaxHTTPBodyLength))
-				resp.Body.Close()
-				if err != nil {
-					return nil, statusCode, tls, rtt, err
-				}
-				return bin, statusCode, tls, rtt, err
-			}
-		} else {
-			if xTransport.CSHandleError == 3 && xTransport.tlsCipherSuite == nil && tls_version == 0x0303 {
-				if resp.TLS != nil {
-					if !strings.Contains(req.URL.String(), ".md") {
-						xTransport.tlsCipherSuite = []uint16{resp.TLS.CipherSuite}
-						xTransport.transport.TLSClientConfig.CipherSuites = []uint16{resp.TLS.CipherSuite}
-						xTransport.keepCipherSuite = true
-						xTransport.CSHandleError = 2
-						dlog.Infof("No TLS configured. Adding connections specified TLS to Cipher Suite:  %v", xTransport.tlsCipherSuite)
-						xTransport.rebuildTransport()
-					}
-					var bodyReader io.ReadCloser = resp.Body
-					if compress && resp.Header.Get("Content-Encoding") == "gzip" {
-						bodyReader, err = gzip.NewReader(io.LimitReader(resp.Body, MaxHTTPBodyLength))
+		if tls_version == 0x0304 {
+			if tls_version == uint16(xTransport.MaxVersion) {
+				if strings.Contains(tls13_safe, strconv.Itoa(int(current_tls))) {
+					if resp.Body != nil {
+						var bodyReader io.ReadCloser = resp.Body
+						if compress && resp.Header.Get("Content-Encoding") == "gzip" {
+							bodyReader, err = gzip.NewReader(io.LimitReader(resp.Body, MaxHTTPBodyLength))
+							if err != nil {
+								return nil, statusCode, tls, rtt, err
+							}
+							defer bodyReader.Close()
+						}
+						bin, err := io.ReadAll(io.LimitReader(bodyReader, MaxHTTPBodyLength))
+						resp.Body.Close()
 						if err != nil {
 							return nil, statusCode, tls, rtt, err
 						}
-						defer bodyReader.Close()
+						return bin, statusCode, tls, rtt, err
 					}
-					bin, err := io.ReadAll(io.LimitReader(bodyReader, MaxHTTPBodyLength))
-					resp.Body.Close()
-					if err != nil {
-						return nil, statusCode, tls, rtt, err
-					}
-					return bin, statusCode, tls, rtt, err
 				} else {
-					dlog.Warn("No TLS configured and server TLS is not applicable for now.")
+					err := errors.New("Unsafe TLS Usage")
+					return nil, 0, nil, 0, err
 				}
 			} else {
 				err := errors.New("Unexpected TLS usage.")
-				return nil, 0, nil, 0, err
+				return nil, statusCode, tls, rtt, err
 			}
+		} else if tls_version == 0x0303 {
+			if xTransport.CSHandleError == 3 { // No Cipher Suite at start up add server Cipher Suite
+				if xTransport.tlsCipherSuite == nil {
+					if resp.TLS != nil {
+						// Don't add TLS from public resolver domains it may be incompatible with resolver
+						if !strings.Contains(req.URL.String(), ".md") {
+							xTransport.tlsCipherSuite = []uint16{resp.TLS.CipherSuite}
+							xTransport.transport.TLSClientConfig.CipherSuites = []uint16{resp.TLS.CipherSuite}
+							xTransport.keepCipherSuite = true
+							xTransport.CSHandleError = 2
+							dlog.Infof("No TLS configured. Adding connections specified TLS to Cipher Suite:  %v", xTransport.tlsCipherSuite)
+							xTransport.rebuildTransport()
+						}
+					} else {
+						dlog.Warn("No TLS configured and server TLS is not applicable because it is nil.")
+					}
+				}
+			}
+			if tls_version == uint16(xTransport.MaxVersion) {
+				if strings.Contains(tls12_safe, strconv.Itoa(int(current_tls))) {
+					if resp.Body != nil {
+						var bodyReader io.ReadCloser = resp.Body
+						if compress && resp.Header.Get("Content-Encoding") == "gzip" {
+							bodyReader, err = gzip.NewReader(io.LimitReader(resp.Body, MaxHTTPBodyLength))
+							if err != nil {
+								return nil, statusCode, tls, rtt, err
+							}
+							defer bodyReader.Close()
+						}
+						bin, err := io.ReadAll(io.LimitReader(bodyReader, MaxHTTPBodyLength))
+						resp.Body.Close()
+						if err != nil {
+							return nil, statusCode, tls, rtt, err
+						}
+						return bin, statusCode, tls, rtt, err
+					}
+				} else {
+					err := errors.New("Unsafe TLS Usage")
+					return nil, 0, nil, 0, err
+				}
+			} else {
+				err := errors.New("Unexpected TLS usage.")
+				return nil, statusCode, tls, rtt, err
+			}
+		} else {
+			err := errors.New("Unexpected TLS Version.")
+			return nil, 0, nil, 0, err
 		}
 	} else {
 		err := errors.New("Response is nil.")
 		return nil, 0, nil, 0, err
 	}
-	if err == nil {
-		err = errors.New("Failled body.")
-	}
+	err = errors.New("Failed body.")
 	return nil, statusCode, nil, rtt, err
 }
 

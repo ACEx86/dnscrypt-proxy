@@ -83,6 +83,7 @@ type Config struct {
 	SourceIPv6               bool                        `toml:"ipv6_servers"`
 	MaxClients               uint32                      `toml:"max_clients"`
 	BootstrapResolvers       []string                    `toml:"bootstrap_resolvers"`
+	NoFallback               bool                        `toml:"no_fallback"`
 	IgnoreSystemDNS          bool                        `toml:"ignore_system_dns"`
 	AllWeeklyRanges          map[string]WeeklyRangesStr  `toml:"schedules"`
 	LogMaxSize               int                         `toml:"log_files_max_size"`
@@ -139,6 +140,7 @@ func newConfig() Config {
 		SourceODoH:               false,
 		MaxClients:               250,
 		BootstrapResolvers:       []string{DefaultBootstrapResolver},
+		NoFallback:               true,
 		IgnoreSystemDNS:          false,
 		LogMaxSize:               10,
 		LogMaxAge:                7,
@@ -386,6 +388,7 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 		}
 		proxy.xTransport.bootstrapResolvers = config.BootstrapResolvers
 	}
+	proxy.xTransport.NoFallback = config.NoFallback
 	proxy.xTransport.ignoreSystemDNS = config.IgnoreSystemDNS
 	proxy.xTransport.useIPv4 = config.SourceIPv4
 	proxy.xTransport.useIPv6 = config.SourceIPv6
@@ -679,23 +682,27 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 		netprobeAddress = config.NetprobeAddress
 	}
 	if !isCommandMode {
-		var nerr error = nil
-		if nerr = NetProbe(proxy, netprobeAddress, netprobeTimeout); nerr != nil {
-			if len(DefaultNetprobeAddress) > 8 && netprobeAddress != DefaultNetprobeAddress {
-				nerr = nil
-				nerr = NetProbe(proxy, DefaultNetprobeAddress, netprobeTimeout)
+		if config.NetprobeTimeout > 0 {
+			var nerr error = nil
+			if nerr = NetProbe(proxy, netprobeAddress, netprobeTimeout); nerr != nil {
+				if len(DefaultNetprobeAddress) > 8 && netprobeAddress != DefaultNetprobeAddress {
+					nerr = nil
+					nerr = NetProbe(proxy, DefaultNetprobeAddress, netprobeTimeout)
+				}
+				if nerr != nil && len(config.BootstrapResolvers[0]) > 8 && config.BootstrapResolvers[0] != netprobeAddress && config.BootstrapResolvers[0] != DefaultNetprobeAddress {
+					nerr = nil
+					nerr = NetProbe(proxy, config.BootstrapResolvers[0], netprobeTimeout)
+				}
+				if nerr != nil && len(DefaultBootstrapResolver) > 8 && DefaultBootstrapResolver != config.BootstrapResolvers[0] && DefaultBootstrapResolver != netprobeAddress && DefaultBootstrapResolver != DefaultNetprobeAddress {
+					nerr = nil
+					nerr = NetProbe(proxy, DefaultBootstrapResolver, netprobeTimeout)
+				}
+				if nerr != nil {
+					dlog.Notice(nerr)
+				}
 			}
-			if nerr != nil && len(config.BootstrapResolvers[0]) > 8 && config.BootstrapResolvers[0] != netprobeAddress && config.BootstrapResolvers[0] != DefaultNetprobeAddress {
-				nerr = nil
-				nerr = NetProbe(proxy, config.BootstrapResolvers[0], netprobeTimeout)
-			}
-			if nerr != nil && len(DefaultBootstrapResolver) > 8 && DefaultBootstrapResolver != config.BootstrapResolvers[0] && DefaultBootstrapResolver != netprobeAddress && DefaultBootstrapResolver != DefaultNetprobeAddress {
-				nerr = nil
-				nerr = NetProbe(proxy, DefaultBootstrapResolver, netprobeTimeout)
-			}
-			if nerr != nil {
-				dlog.Notice(nerr)
-			}
+		} else {
+			dlog.Notice("Netprobe is disabled")
 		}
 		for _, listenAddrStr := range proxy.listenAddresses {
 			proxy.addDNSListener(listenAddrStr)
