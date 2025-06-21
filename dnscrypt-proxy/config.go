@@ -3,12 +3,8 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"math/rand"
-	"net"
-	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -19,39 +15,49 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/jedisct1/dlog"
 	stamps "github.com/jedisct1/go-dnsstamps"
-	netproxy "golang.org/x/net/proxy"
 )
 
 const (
 	MaxTimeout             = 3600
-	DefaultNetprobeAddress = "9.9.9.9:53"
+	DefaultNetprobeAddress = "1.1.1.3:53"
 )
 
+var Bypass_NetProbe = 1
+var Drop13 = false
+var Drop12 = false
+
 type Config struct {
-	LogLevel                 int            `toml:"log_level"`
-	LogFile                  *string        `toml:"log_file"`
-	LogFileLatest            bool           `toml:"log_file_latest"`
-	UseSyslog                bool           `toml:"use_syslog"`
-	ServerNames              []string       `toml:"server_names"`
-	DisabledServerNames      []string       `toml:"disabled_server_names"`
-	ListenAddresses          []string       `toml:"listen_addresses"`
-	LocalDoH                 LocalDoHConfig `toml:"local_doh"`
-	UserAgent                string         `toml:"user_agent"`
-	UserName                 string         `toml:"user_name"`
-	ForceTCP                 bool           `toml:"force_tcp"`
-	HTTP3                    bool           `toml:"http3"`
-	Timeout                  int            `toml:"timeout"`
-	KeepAlive                int            `toml:"keepalive"`
-	Proxy                    string         `toml:"proxy"`
-	CertRefreshConcurrency   int            `toml:"cert_refresh_concurrency"`
-	CertRefreshDelay         int            `toml:"cert_refresh_delay"`
-	CertIgnoreTimestamp      bool           `toml:"cert_ignore_timestamp"`
-	EphemeralKeys            bool           `toml:"dnscrypt_ephemeral_keys"`
-	LBStrategy               string         `toml:"lb_strategy"`
-	LBEstimator              bool           `toml:"lb_estimator"`
-	BlockIPv6                bool           `toml:"block_ipv6"`
-	BlockUnqualified         bool           `toml:"block_unqualified"`
-	BlockUndelegated         bool           `toml:"block_undelegated"`
+	DropTLS13                bool               `toml:"drop_13"`
+	DropTLS12                bool               `toml:"drop_12"`
+	UserAgent                string             `toml:"user_agent"`
+	NoActiveCon              bool               `toml:"no_active_connection"`
+	RetryWith2               bool               `toml:"http2_on_failure"`
+	ForceTCP                 bool               `toml:"force_tcp"`
+	LogLevel                 int                `toml:"log_level"`
+	LogFile                  *string            `toml:"log_file"`
+	LogFileLatest            bool               `toml:"log_file_latest"`
+	UseSyslog                bool               `toml:"use_syslog"`
+	ServerNames              []string           `toml:"server_names"`
+	DisabledServerNames      []string           `toml:"disabled_server_names"`
+	ListenAddresses          []string           `toml:"listen_addresses"`
+	LocalDoH                 LocalDoHConfig     `toml:"local_doh"`
+	MonitoringUI             MonitoringUIConfig `toml:"monitoring_ui"`
+	UserName                 string             `toml:"user_name"`
+	HTTP3                    bool               `toml:"http3"`
+	HTTP3Probe               bool               `toml:"http3_probe"`
+	Timeout                  int                `toml:"timeout"`
+	KeepAlive                int                `toml:"keepalive"`
+	Proxy                    string             `toml:"proxy"`
+	CertRefreshConcurrency   int                `toml:"cert_refresh_concurrency"`
+	CertRefreshDelay         int                `toml:"cert_refresh_delay"`
+	CertIgnoreTimestamp      bool               `toml:"cert_ignore_timestamp"`
+	EphemeralKeys            bool               `toml:"dnscrypt_ephemeral_keys"`
+	LBStrategy               string             `toml:"lb_strategy"`
+	LBEstimator              bool               `toml:"lb_estimator"`
+	BlockIPv6                bool               `toml:"block_ipv6"`
+	BlockUnqualified         bool               `toml:"block_unqualified"`
+	BlockUndelegated         bool               `toml:"block_undelegated"`
+	EnableHotReload          bool               `toml:"enable_hot_reload"`
 	Cache                    bool
 	CacheSize                int                         `toml:"cache_size"`
 	CacheNegTTL              uint32                      `toml:"cache_neg_ttl"`
@@ -89,8 +95,8 @@ type Config struct {
 	LogMaxSize               int                         `toml:"log_files_max_size"`
 	LogMaxAge                int                         `toml:"log_files_max_age"`
 	LogMaxBackups            int                         `toml:"log_files_max_backups"`
-	TLSDisableSessionTickets bool                        `toml:"tls_disable_session_tickets"`
 	ForceTLS12               bool                        `toml:"force_tls12"`
+	TLSDisableSessionTickets bool                        `toml:"tls_disable_session_tickets"`
 	TLSCipherSuite           []uint16                    `toml:"tls_cipher_suite"`
 	TLSKeyLogFile            string                      `toml:"tls_key_log_file"`
 	NetprobeAddress          string                      `toml:"netprobe_address"`
@@ -110,16 +116,29 @@ type Config struct {
 
 func newConfig() Config {
 	return Config{
-		UserAgent:                DefaultUserAgent,
-		LogLevel:                 int(dlog.LogLevel()),
-		LogFileLatest:            true,
-		ListenAddresses:          []string{"127.0.0.1:53"},
-		LocalDoH:                 LocalDoHConfig{Path: "/dns-query"},
+		DropTLS13:       false,
+		DropTLS12:       false,
+		UserAgent:       DefaultUserAgent,
+		NoActiveCon:     true,
+		RetryWith2:      true,
+		LogLevel:        int(dlog.LogLevel()),
+		LogFileLatest:   true,
+		ListenAddresses: []string{"127.0.0.1:53"},
+		LocalDoH:        LocalDoHConfig{Path: "/dns-query"},
+		MonitoringUI: MonitoringUIConfig{
+			Enabled:        false,
+			ListenAddress:  "127.0.0.1:8080",
+			Username:       "admin", // Set to empty string to disable authentication
+			Password:       "changeme",
+			EnableQueryLog: false,
+			PrivacyLevel:   2,
+		},
 		Timeout:                  5000,
 		KeepAlive:                5,
 		CertRefreshConcurrency:   10,
 		CertRefreshDelay:         240,
 		HTTP3:                    false,
+		HTTP3Probe:               false,
 		CertIgnoreTimestamp:      false,
 		EphemeralKeys:            false,
 		Cache:                    true,
@@ -145,8 +164,8 @@ func newConfig() Config {
 		LogMaxSize:               10,
 		LogMaxAge:                7,
 		LogMaxBackups:            1,
-		TLSDisableSessionTickets: false,
 		ForceTLS12:               false,
+		TLSDisableSessionTickets: false,
 		TLSCipherSuite:           nil,
 		TLSKeyLogFile:            "",
 		NetprobeTimeout:          60,
@@ -206,6 +225,12 @@ type AllowedNameConfig struct {
 
 type BlockIPConfig struct {
 	File    string `toml:"blocked_ips_file"`
+	LogFile string `toml:"log_file"`
+	Format  string `toml:"log_format"`
+}
+
+type BlockIPConfigLegacy struct {
+	File    string `toml:"blacklist_file"`
 	LogFile string `toml:"log_file"`
 	Format  string `toml:"log_format"`
 }
@@ -318,7 +343,7 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 	}
 
 	if flags.Resolve != nil && len(*flags.Resolve) > 0 {
-		addr := "127.0.0.1:53"
+		addr := "127.0.101.101:53"
 		if len(config.ListenAddresses) > 0 {
 			addr = config.ListenAddresses[0]
 		}
@@ -329,391 +354,105 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 	if err := cdFileDir(foundConfigFile); err != nil {
 		return err
 	}
-	if config.LogLevel >= 0 && config.LogLevel < int(dlog.SeverityLast) {
-		dlog.SetLogLevel(dlog.Severity(config.LogLevel))
-	}
-	if dlog.LogLevel() <= dlog.SeverityDebug && os.Getenv("DEBUG") == "" {
-		dlog.SetLogLevel(dlog.SeverityInfo)
-	}
-	dlog.TruncateLogFile(config.LogFileLatest)
-	proxy.showCerts = *flags.ShowCerts || len(os.Getenv("SHOW_CERTS")) > 0
-	isCommandMode := *flags.Check || proxy.showCerts || *flags.List || *flags.ListAll
-	if isCommandMode {
-	} else if config.UseSyslog {
-		dlog.UseSyslog(true)
-	} else if config.LogFile != nil {
-		dlog.UseLogFile(*config.LogFile)
-		if !*flags.Child {
-			FileDescriptors = append(FileDescriptors, dlog.GetFileDescriptor())
-		} else {
-			dlog.SetFileDescriptor(os.NewFile(uintptr(InheritedDescriptorsBase+FileDescriptorNum), "logFile"))
-			FileDescriptorNum++
-		}
-	}
-	if !*flags.Child {
-		dlog.Noticef("dnscrypt-proxy %s", AppVersion)
-	}
+
+	// Check for unsupported keys in configuration
 	undecoded := md.Undecoded()
 	if len(undecoded) > 0 {
 		return fmt.Errorf("Unsupported key in configuration file: [%s]", undecoded[0])
 	}
 
+	// Set up basic proxy properties
+	proxy.showCerts = *flags.ShowCerts || len(os.Getenv("SHOW_CERTS")) > 0
 	proxy.logMaxSize = config.LogMaxSize
 	proxy.logMaxAge = config.LogMaxAge
 	proxy.logMaxBackups = config.LogMaxBackups
-
 	proxy.userName = config.UserName
-
 	proxy.child = *flags.Child
+	proxy.enableHotReload = config.EnableHotReload
 	proxy.xTransport = NewXTransport()
-	if len(config.UserAgent) > 0 {
-		dlog.Infof("Configured User Agent: %s", config.UserAgent)
-		proxy.xTransport.UserAgent = config.UserAgent
-	}
-	proxy.xTransport.tlsDisableSessionTickets = config.TLSDisableSessionTickets
-	if len(config.TLSCipherSuite) > 0 {
-		proxy.xTransport.tlsCipherSuite = config.TLSCipherSuite
-	} else {
-		if config.ForceTLS12 == true {
-			proxy.xTransport.CSHandleError = 3
-		}
-	}
-	proxy.xTransport.mainProto = proxy.mainProto
-	proxy.xTransport.http3 = config.HTTP3
-	if len(config.BootstrapResolvers) > 0 {
-		for _, resolver := range config.BootstrapResolvers {
-			if err := isIPAndPort(resolver); err != nil {
-				return fmt.Errorf("Bootstrap resolver [%v]: %v", resolver, err)
-			}
-		}
-		proxy.xTransport.bootstrapResolvers = config.BootstrapResolvers
-	}
-	proxy.xTransport.NoFallback = config.NoFallback
-	proxy.xTransport.ignoreSystemDNS = config.IgnoreSystemDNS
-	proxy.xTransport.useIPv4 = config.SourceIPv4
-	proxy.xTransport.useIPv6 = config.SourceIPv6
-	proxy.xTransport.keepAlive = time.Duration(config.KeepAlive) * time.Second
-	if len(config.HTTPProxyURL) > 0 {
-		httpProxyURL, err := url.Parse(config.HTTPProxyURL)
-		if err != nil {
-			return fmt.Errorf("Unable to parse the HTTP proxy URL [%v]", config.HTTPProxyURL)
-		}
-		proxy.xTransport.httpProxyFunction = http.ProxyURL(httpProxyURL)
-	}
 
-	if len(config.Proxy) > 0 {
-		proxyDialerURL, err := url.Parse(config.Proxy)
-		if err != nil {
-			return fmt.Errorf("Unable to parse the proxy URL [%v]", config.Proxy)
-		}
-		proxyDialer, err := netproxy.FromURL(proxyDialerURL, netproxy.Direct)
-		if err != nil {
-			return fmt.Errorf("Unable to use the proxy: [%v]", err)
-		}
-		proxy.xTransport.proxyDialer = &proxyDialer
-		proxy.mainProto = "tcp"
-	}
-	if config.ForceTLS12 == true {
-		proxy.xTransport.keepCipherSuite = true
-	}
-	proxy.xTransport.rebuildTransport()
+	// Configure logging
+	configureLogging(proxy, flags, &config)
 
-	if md.IsDefined("refused_code_in_responses") {
-		dlog.Notice("config option `refused_code_in_responses` is deprecated, use `blocked_query_response`")
-		if config.RefusedCodeInResponses {
-			config.BlockedQueryResponse = "refused"
-		} else {
-			config.BlockedQueryResponse = "hinfo"
-		}
-	}
-	proxy.blockedQueryResponse = config.BlockedQueryResponse
-	proxy.timeout = time.Duration(config.Timeout) * time.Millisecond
-	proxy.maxClients = config.MaxClients
-	proxy.mainProto = "udp"
-	if config.ForceTCP {
-		proxy.mainProto = "tcp"
-	}
-	proxy.certRefreshConcurrency = Max(1, config.CertRefreshConcurrency)
-	proxy.certRefreshDelay = time.Duration(Max(60, config.CertRefreshDelay)) * time.Minute
-	proxy.certRefreshDelayAfterFailure = time.Duration(10 * time.Second)
-	proxy.certIgnoreTimestamp = config.CertIgnoreTimestamp
-	proxy.ephemeralKeys = config.EphemeralKeys
-	if len(config.ListenAddresses) == 0 && len(config.LocalDoH.ListenAddresses) == 0 {
-		dlog.Debug("No local IP/port configured")
-	}
-	lbStrategy := LBStrategy(DefaultLBStrategy)
-	switch lbStrategyStr := strings.ToLower(config.LBStrategy); lbStrategyStr {
-	case "":
-		// default
-	case "p2":
-		lbStrategy = LBStrategyP2{}
-	case "ph":
-		lbStrategy = LBStrategyPH{}
-	case "fastest":
-	case "first":
-		lbStrategy = LBStrategyFirst{}
-	case "random":
-		lbStrategy = LBStrategyRandom{}
-	default:
-		if strings.HasPrefix(lbStrategyStr, "p") {
-			n, err := strconv.ParseInt(strings.TrimPrefix(lbStrategyStr, "p"), 10, 32)
-			if err != nil || n <= 0 {
-				dlog.Warnf("Invalid load balancing strategy: [%s]", config.LBStrategy)
-			} else {
-				lbStrategy = LBStrategyPN{n: int(n)}
-			}
-		} else {
-			dlog.Warnf("Unknown load balancing strategy: [%s]", config.LBStrategy)
-		}
-	}
-	proxy.serversInfo.lbStrategy = lbStrategy
-	proxy.serversInfo.lbEstimator = config.LBEstimator
-
-	proxy.listenAddresses = config.ListenAddresses
-	proxy.localDoHListenAddresses = config.LocalDoH.ListenAddresses
-	if len(config.LocalDoH.Path) > 0 && config.LocalDoH.Path[0] != '/' {
-		return fmt.Errorf("local DoH: [%s] cannot be a valid URL path. Read the documentation", config.LocalDoH.Path)
-	}
-	proxy.localDoHPath = config.LocalDoH.Path
-	proxy.localDoHCertFile = config.LocalDoH.CertFile
-	proxy.localDoHCertKeyFile = config.LocalDoH.CertKeyFile
-	proxy.pluginBlockIPv6 = config.BlockIPv6
-	proxy.pluginBlockUnqualified = config.BlockUnqualified
-	proxy.pluginBlockUndelegated = config.BlockUndelegated
-	proxy.cache = config.Cache
-	proxy.cacheSize = config.CacheSize
-
-	if config.CacheNegTTL > 0 {
-		proxy.cacheNegMinTTL = config.CacheNegTTL
-		proxy.cacheNegMaxTTL = config.CacheNegTTL
-	} else {
-		proxy.cacheNegMinTTL = config.CacheNegMinTTL
-		proxy.cacheNegMaxTTL = config.CacheNegMaxTTL
-	}
-
-	proxy.cacheMinTTL = config.CacheMinTTL
-	proxy.cacheMaxTTL = config.CacheMaxTTL
-	proxy.rejectTTL = config.RejectTTL
-	proxy.cloakTTL = config.CloakTTL
-	proxy.cloakedPTR = config.CloakedPTR
-
-	proxy.queryMeta = config.QueryMeta
-
-	if len(config.EDNSClientSubnet) != 0 {
-		proxy.ednsClientSubnets = make([]*net.IPNet, 0)
-		for _, cidr := range config.EDNSClientSubnet {
-			_, net, err := net.ParseCIDR(cidr)
-			if err != nil {
-				return fmt.Errorf("Invalid EDNS-client-subnet CIDR: [%v]", cidr)
-			}
-			proxy.ednsClientSubnets = append(proxy.ednsClientSubnets, net)
-		}
-	}
-
-	if len(config.QueryLog.Format) == 0 {
-		config.QueryLog.Format = "tsv"
-	} else {
-		config.QueryLog.Format = strings.ToLower(config.QueryLog.Format)
-	}
-	if config.QueryLog.Format != "tsv" && config.QueryLog.Format != "ltsv" {
-		return errors.New("Unsupported query log format")
-	}
-	proxy.queryLogFile = config.QueryLog.File
-	proxy.queryLogFormat = config.QueryLog.Format
-	proxy.queryLogIgnoredQtypes = config.QueryLog.IgnoredQtypes
-
-	if len(config.NxLog.Format) == 0 {
-		config.NxLog.Format = "tsv"
-	} else {
-		config.NxLog.Format = strings.ToLower(config.NxLog.Format)
-	}
-	if config.NxLog.Format != "tsv" && config.NxLog.Format != "ltsv" {
-		return errors.New("Unsupported NX log format")
-	}
-	proxy.nxLogFile = config.NxLog.File
-	proxy.nxLogFormat = config.NxLog.Format
-
-	if len(config.BlockName.Format) == 0 {
-		config.BlockName.Format = "tsv"
-	} else {
-		config.BlockName.Format = strings.ToLower(config.BlockName.Format)
-	}
-	if config.BlockName.Format != "tsv" && config.BlockName.Format != "ltsv" {
-		return errors.New("Unsupported block log format")
-	}
-	proxy.blockNameFile = config.BlockName.File
-	proxy.blockNameFormat = config.BlockName.Format
-	proxy.blockNameLogFile = config.BlockName.LogFile
-
-	if len(config.AllowedName.Format) == 0 {
-		config.AllowedName.Format = "tsv"
-	} else {
-		config.AllowedName.Format = strings.ToLower(config.AllowedName.Format)
-	}
-	if config.AllowedName.Format != "tsv" && config.AllowedName.Format != "ltsv" {
-		return errors.New("Unsupported allowed_names log format")
-	}
-	proxy.allowNameFile = config.AllowedName.File
-	proxy.allowNameFormat = config.AllowedName.Format
-	proxy.allowNameLogFile = config.AllowedName.LogFile
-
-	if len(config.BlockIP.Format) == 0 {
-		config.BlockIP.Format = "tsv"
-	} else {
-		config.BlockIP.Format = strings.ToLower(config.BlockIP.Format)
-	}
-	if config.BlockIP.Format != "tsv" && config.BlockIP.Format != "ltsv" {
-		return errors.New("Unsupported IP block log format")
-	}
-	proxy.blockIPFile = config.BlockIP.File
-	proxy.blockIPFormat = config.BlockIP.Format
-	proxy.blockIPLogFile = config.BlockIP.LogFile
-
-	if len(config.AllowIP.Format) == 0 {
-		config.AllowIP.Format = "tsv"
-	} else {
-		config.AllowIP.Format = strings.ToLower(config.AllowIP.Format)
-	}
-	if config.AllowIP.Format != "tsv" && config.AllowIP.Format != "ltsv" {
-		return errors.New("Unsupported allowed_ips log format")
-	}
-	proxy.allowedIPFile = config.AllowIP.File
-	proxy.allowedIPFormat = config.AllowIP.Format
-	proxy.allowedIPLogFile = config.AllowIP.LogFile
-
-	proxy.forwardFile = config.ForwardFile
-	proxy.cloakFile = config.CloakFile
-	proxy.captivePortalMapFile = config.CaptivePortals.MapFile
-
-	allWeeklyRanges, err := ParseAllWeeklyRanges(config.AllWeeklyRanges)
-	if err != nil {
+	// Configure XTransport
+	if err := configureXTransport(proxy, &config); err != nil {
 		return err
 	}
-	proxy.allWeeklyRanges = allWeeklyRanges
 
-	if configRoutes := config.AnonymizedDNS.Routes; configRoutes != nil {
-		routes := make(map[string][]string)
-		for _, configRoute := range configRoutes {
-			routes[configRoute.ServerName] = configRoute.RelayNames
-		}
-		proxy.routes = &routes
-	}
-	proxy.skipAnonIncompatibleResolvers = config.AnonymizedDNS.SkipIncompatible
-	proxy.anonDirectCertFallback = config.AnonymizedDNS.DirectCertFallback
-
-	if len(config.TLSKeyLogFile) > 0 {
-		f, err := os.OpenFile(config.TLSKeyLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-		if err != nil {
-			dlog.Fatalf("Unable to create key log file [%s]: [%s]", config.TLSKeyLogFile, err)
-		}
-		dlog.Warnf("TLS key log file [%s] enabled", config.TLSKeyLogFile)
-		proxy.xTransport.keyLogWriter = f
-		proxy.xTransport.rebuildTransport()
+	// Configure DoH client authentication
+	if err := configureDoHClientAuth(proxy, &config); err != nil {
+		return err
 	}
 
-	if config.DoHClientX509AuthLegacy.Creds != nil {
-		return errors.New("[tls_client_auth] has been renamed to [doh_client_x509_auth] - Update your config file")
-	}
-	dohClientCreds := config.DoHClientX509Auth.Creds
-	if len(dohClientCreds) > 0 {
-		dlog.Noticef("Enabling TLS authentication")
-		configClientCred := dohClientCreds[0]
-		if len(dohClientCreds) > 1 {
-			dlog.Fatal("Only one tls_client_auth entry is currently supported")
-		}
-		proxy.xTransport.tlsClientCreds = DOHClientCreds{
-			clientCert: configClientCred.ClientCert,
-			clientKey:  configClientCred.ClientKey,
-			rootCA:     configClientCred.RootCA,
-		}
-		proxy.xTransport.rebuildTransport()
+	// Configure server parameters
+	configureServerParams(proxy, &config)
+
+	// Configure load balancing
+	configureLoadBalancing(proxy, &config)
+
+	// Configure plugins
+	configurePlugins(proxy, &config)
+
+	// Configure EDNS client subnet
+	if err := configureEDNSClientSubnet(proxy, &config); err != nil {
+		return err
 	}
 
-	// Backwards compatibility
-	config.BrokenImplementations.FragmentsBlocked = append(
-		config.BrokenImplementations.FragmentsBlocked,
-		config.BrokenImplementations.BrokenQueryPadding...)
-
-	proxy.serversBlockingFragments = config.BrokenImplementations.FragmentsBlocked
-
-	proxy.dns64Prefixes = config.DNS64.Prefixes
-	proxy.dns64Resolvers = config.DNS64.Resolvers
-
-	if *flags.ListAll {
-		config.ServerNames = nil
-		config.DisabledServerNames = nil
-		config.SourceRequireDNSSEC = false
-		config.SourceRequireNoFilter = false
-		config.SourceRequireNoLog = false
-		config.SourceIPv4 = true
-		config.SourceIPv6 = true
-		config.SourceDNSCrypt = true
-		config.SourceDoH = true
-		config.SourceODoH = true
+	// Configure query logging
+	if err := configureQueryLog(proxy, &config); err != nil {
+		return err
 	}
 
-	var requiredProps stamps.ServerInformalProperties
-	if config.SourceRequireDNSSEC {
-		requiredProps |= stamps.ServerInformalPropertyDNSSEC
+	// Configure NX domain logging
+	if err := configureNXLog(proxy, &config); err != nil {
+		return err
 	}
-	if config.SourceRequireNoLog {
-		requiredProps |= stamps.ServerInformalPropertyNoLog
-	}
-	if config.SourceRequireNoFilter {
-		requiredProps |= stamps.ServerInformalPropertyNoFilter
-	}
-	proxy.requiredProps = requiredProps
-	proxy.ServerNames = config.ServerNames
-	proxy.DisabledServerNames = config.DisabledServerNames
-	proxy.SourceIPv4 = config.SourceIPv4
-	proxy.SourceIPv6 = config.SourceIPv6
-	proxy.SourceDNSCrypt = config.SourceDNSCrypt
-	proxy.SourceDoH = config.SourceDoH
-	proxy.SourceODoH = config.SourceODoH
 
-	netprobeTimeout := config.NetprobeTimeout
-	flag.Visit(func(flag *flag.Flag) {
-		if flag.Name == "netprobe-timeout" && flags.NetprobeTimeoutOverride != nil {
-			netprobeTimeout = *flags.NetprobeTimeoutOverride
-		}
-	})
-	netprobeAddress := DefaultNetprobeAddress
-	if len(config.NetprobeAddress) > 0 {
-		netprobeAddress = config.NetprobeAddress
+	// Configure blocked names
+	if err := configureBlockedNames(proxy, &config); err != nil {
+		return err
 	}
-	if !isCommandMode {
-		if config.NetprobeTimeout > 0 {
-			var nerr error = nil
-			if nerr = NetProbe(proxy, netprobeAddress, netprobeTimeout); nerr != nil {
-				if len(DefaultNetprobeAddress) > 8 && netprobeAddress != DefaultNetprobeAddress {
-					nerr = nil
-					nerr = NetProbe(proxy, DefaultNetprobeAddress, netprobeTimeout)
-				}
-				if nerr != nil && len(config.BootstrapResolvers[0]) > 8 && config.BootstrapResolvers[0] != netprobeAddress && config.BootstrapResolvers[0] != DefaultNetprobeAddress {
-					nerr = nil
-					nerr = NetProbe(proxy, config.BootstrapResolvers[0], netprobeTimeout)
-				}
-				if nerr != nil && len(DefaultBootstrapResolver) > 8 && DefaultBootstrapResolver != config.BootstrapResolvers[0] && DefaultBootstrapResolver != netprobeAddress && DefaultBootstrapResolver != DefaultNetprobeAddress {
-					nerr = nil
-					nerr = NetProbe(proxy, DefaultBootstrapResolver, netprobeTimeout)
-				}
-				if nerr != nil {
-					dlog.Notice(nerr)
-				}
-			}
-		} else {
-			dlog.Notice("Netprobe is disabled")
-		}
-		for _, listenAddrStr := range proxy.listenAddresses {
-			proxy.addDNSListener(listenAddrStr)
-		}
-		for _, listenAddrStr := range proxy.localDoHListenAddresses {
-			proxy.addLocalDoHListener(listenAddrStr)
-		}
-		if err := proxy.addSystemDListeners(); err != nil {
-			return err
-		}
+
+	// Configure allowed names
+	if err := configureAllowedNames(proxy, &config); err != nil {
+		return err
 	}
+
+	// Configure blocked IPs
+	if err := configureBlockedIPs(proxy, &config); err != nil {
+		return err
+	}
+
+	// Configure allowed IPs
+	if err := configureAllowedIPs(proxy, &config); err != nil {
+		return err
+	}
+
+	// Configure additional files
+	configureAdditionalFiles(proxy, &config)
+
+	// Configure weekly ranges
+	if err := configureWeeklyRanges(proxy, &config); err != nil {
+		return err
+	}
+
+	// Configure anonymized DNS
+	configureAnonymizedDNS(proxy, &config)
+
+	// Configure broken implementations
+	configureBrokenImplementations(proxy, &config)
+
+	// Configure DNS64
+	configureDNS64(proxy, &config)
+
+	// Configure source restrictions
+	configureSourceRestrictions(proxy, flags, &config)
+
+	// Initialize networking
+	if err := initializeNetworking(proxy, flags, &config); err != nil {
+		return err
+	}
+
 	// if 'userName' is set and we are the parent process drop privilege and exit
 	if len(proxy.userName) > 0 && !proxy.child {
 		proxy.dropPrivilege(proxy.userName, FileDescriptors)
@@ -721,6 +460,8 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 			"Dropping privileges is not supporting on this operating system. Unset `user_name` in the configuration file",
 		)
 	}
+
+	// Load sources and verify servers
 	if !config.OfflineMode {
 		if err := config.loadSources(proxy); err != nil {
 			return err
@@ -729,12 +470,16 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 			return errors.New("None of the servers listed in the server_names list was found in the configured sources.")
 		}
 	}
+
+	// Handle listing servers if requested
 	if *flags.List || *flags.ListAll {
 		if err := config.printRegisteredServers(proxy, *flags.JSONOutput, *flags.IncludeRelays); err != nil {
 			return err
 		}
 		os.Exit(0)
 	}
+
+	// Log anonymized DNS routes
 	if proxy.routes != nil && len(*proxy.routes) > 0 {
 		hasSpecificRoutes := false
 		for _, server := range proxy.registeredServers {
@@ -759,11 +504,40 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 			}
 		}
 	}
+
+	// Exit if just checking configuration
 	if *flags.Check {
 		dlog.Notice("Configuration successfully checked")
 		os.Exit(0)
 	}
+
 	return nil
+}
+
+// GetRefusedFlag - Returns whether the config has defined refused_code_in_responses
+func (config *Config) GetRefusedFlag(configFile string) (bool, bool) {
+	var refused bool
+	md, err := toml.DecodeFile(configFile, &refused)
+	if err != nil {
+		return false, false
+	}
+	return refused, md.IsDefined("refused_code_in_responses")
+}
+
+// configureBrokenImplementations - Helper function for IsDefined check
+func configureBrokenImplementations(proxy *Proxy, config *Config) {
+	// Backwards compatibility
+	config.BrokenImplementations.FragmentsBlocked = append(
+		config.BrokenImplementations.FragmentsBlocked,
+		config.BrokenImplementations.BrokenQueryPadding...)
+
+	proxy.serversBlockingFragments = config.BrokenImplementations.FragmentsBlocked
+}
+
+// configureDNS64 - Helper function for DNS64
+func configureDNS64(proxy *Proxy, config *Config) {
+	proxy.dns64Prefixes = config.DNS64.Prefixes
+	proxy.dns64Resolvers = config.DNS64.Resolvers
 }
 
 func (config *Config) printRegisteredServers(proxy *Proxy, jsonOutput bool, includeRelays bool) error {
@@ -864,7 +638,7 @@ func (config *Config) loadSources(proxy *Proxy) error {
 	for name, config := range config.StaticsConfig {
 		if stamp, err := stamps.NewServerStampFromString(config.Stamp); err == nil {
 			if stamp.Proto == stamps.StampProtoTypeDNSCryptRelay || stamp.Proto == stamps.StampProtoTypeODoHRelay {
-				dlog.Debugf("Adding [%s] to the set of available static relays", name)
+				dlog.Infof("Adding [%s] to the set of available static relays", name)
 				registeredServer := RegisteredServer{name: name, stamp: stamp, description: "static relay"}
 				proxy.registeredRelays = append(proxy.registeredRelays, registeredServer)
 			}
@@ -904,9 +678,10 @@ func (config *Config) loadSources(proxy *Proxy) error {
 }
 
 func (config *Config) loadSource(proxy *Proxy, cfgSourceName string, cfgSource *SourceConfig) error {
+	dlog.Info("Loading static sources")
 	if len(cfgSource.URLs) == 0 {
 		if len(cfgSource.URL) == 0 {
-			dlog.Debugf("Missing URLs for source [%s]", cfgSourceName)
+			dlog.Infof("Missing URLs for source [%s]", cfgSourceName)
 		} else {
 			cfgSource.URLs = []string{cfgSource.URL}
 		}
@@ -949,6 +724,11 @@ func (config *Config) loadSource(proxy *Proxy, cfgSourceName string, cfgSource *
 		proxy.sources = append(proxy.sources, source)
 		break
 	}
+	if Bypass_NetProbe == 2 {
+		Bypass_NetProbe = 3
+		dlog.Notice("Network connectivity detected")
+	}
+	dlog.Notice("Loading source done!")
 	return nil
 }
 
