@@ -13,13 +13,14 @@ func NetProbe(proxy *Proxy, address string, timeout int) error {
 		return nil
 	}
 	addrlen := len(address)
-	if addrlen <= 9 {
+	if addrlen <= 8 {
+		addrerr := ""
 		if addrlen > 0 {
-			dlog.Notice("Netprobe address not configured correctly. Example: 1.1.1.1:53")
+			addrerr = "Netprobe address not configured correctly. Example: 1.1.1.1:53"
 		} else {
-			dlog.Notice("Netprobe address not configured.")
+			addrerr = "Netprobe address not configured."
 		}
-		return errors.New("Netprobe address not configured.")
+		return errors.New(addrerr)
 	}
 	if captivePortalHandler, err := ColdStart(proxy); err == nil {
 		if captivePortalHandler != nil {
@@ -38,13 +39,14 @@ func NetProbe(proxy *Proxy, address string, timeout int) error {
 	} else {
 		timeout = Min(MaxTimeout, timeout)
 	}
-	for tries := timeout; tries > 0; tries-- {
+	for tries := 60; tries > 0; tries-- {
 		pc, err := net.DialUDP("udp", nil, remoteUDPAddr)
 		if err == nil {
 			// Write at least 1 byte. This ensures that sockets are ready to use for writing.
 			// Windows specific: during the system startup, sockets can be created but the underlying buffers may not be
 			// setup yet. If this is the case Write fails with WSAENOBUFS: "An operation on a socket could not be
 			// performed because the system lacked sufficient buffer space or because a queue was full"
+			dlog.Notice("Sending an empty packet query to netprobe address")
 			_, err = pc.Write([]byte{0})
 		}
 		if err != nil {
@@ -54,10 +56,17 @@ func NetProbe(proxy *Proxy, address string, timeout int) error {
 			}
 			dlog.Debug(err)
 			time.Sleep(1 * time.Second)
+			pc.Close()
+			if Bypass_NetProbe == 3 {
+				return nil
+			}
 			continue
 		}
 		pc.Close()
-		dlog.Notice("Network connectivity detected")
+		if Bypass_NetProbe != 3 {
+			Bypass_NetProbe = 3
+			dlog.Notice("Network connectivity detected")
+		}
 		return nil
 	}
 	dlog.Error("Timeout while waiting for network connectivity")
