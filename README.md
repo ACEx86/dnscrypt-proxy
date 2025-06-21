@@ -38,3 +38,11 @@ Available as source code and pre-built binaries for most operating systems and a
 * Includes a local DoH server in order to support ECH (ESNI)
 
 How to use these files, as well as how to verify their signatures, are documented in the [installation instructions](https://github.com/dnscrypt/dnscrypt-proxy/wiki/installation).
+
+## Update & Build
+
+cd dnscrypt-proxy/
+got get -u
+go mod tidy
+go mod vendor
+go build -ldflags="-s -w" -mod vendor
