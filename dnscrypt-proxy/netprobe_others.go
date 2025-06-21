@@ -44,15 +44,16 @@ func NetProbe(proxy *Proxy, address string, timeout int) error {
 	for tries := 60; tries > 0; tries-- {
 		pc, err := net.DialUDP("udp", nil, remoteUDPAddr)
 		if err != nil {
+			pc.Close()
 			if !retried {
 				retried = true
 				dlog.Notice("Network not available yet -- waiting...")
 			}
 			dlog.Debug(err)
 			time.Sleep(1 * time.Second)
-			pc.Close()
 			// Needed to exit NetProbe since the packet can be blocked by a firewall but a connection to the query addr may be established
 			if Bypass_NetProbe == 3 {
+				dlog.Notice("Connection to NetProbe address failed")
 				return nil
 			}
 			continue
