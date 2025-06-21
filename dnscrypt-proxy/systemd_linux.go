@@ -5,7 +5,7 @@ package main
 import (
 	"net"
 
-	"github.com/coreos/go-systemd/activation"
+	"github.com/coreos/go-systemd/v22/activation"
 	"github.com/jedisct1/dlog"
 )
 
