@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"net"
 	"time"
 
@@ -14,13 +15,14 @@ func NetProbe(proxy *Proxy, address string, timeout int) error {
 		return nil
 	}
 	addrlen := len(address)
-	if addrlen <= 9 { // <!=T
+	if addrlen <= 8 {
+		addrerr := ""
 		if addrlen > 0 {
-			dlog.Notice("Netprobe address not configured correctly. Example: 1.1.1.1:53")
+			addrerr = "Netprobe address not configured correctly. Example: 1.1.1.1:53"
 		} else {
-			dlog.Notice("Netprobe address not configured.")
+			addrerr = "Netprobe address not configured."
 		}
-		return errors.New("Netprobe address not configured.")
+		return errors.New(addrerr)
 	}
 	if captivePortalHandler, err := ColdStart(proxy); err == nil {
 		if captivePortalHandler != nil {
@@ -34,12 +36,12 @@ func NetProbe(proxy *Proxy, address string, timeout int) error {
 		return err
 	}
 	retried := false
-	if timeout < 0 {
+	if timeout <= 0 {
 		timeout = MaxTimeout
 	} else {
 		timeout = Min(MaxTimeout, timeout)
 	}
-	for tries := timeout; tries > 0; tries-- {
+	for tries := 60; tries > 0; tries-- {
 		pc, err := net.DialUDP("udp", nil, remoteUDPAddr)
 		if err != nil {
 			if !retried {
@@ -48,10 +50,17 @@ func NetProbe(proxy *Proxy, address string, timeout int) error {
 			}
 			dlog.Debug(err)
 			time.Sleep(1 * time.Second)
+			pc.Close()
+			if Bypass_NetProbe == 3 {
+				return nil
+			}
 			continue
 		}
 		pc.Close()
-		dlog.Notice("Network connectivity detected")
+		if Bypass_NetProbe != 3 {
+			Bypass_NetProbe = 3
+			dlog.Notice("Network connectivity detected")
+		}
 		return nil
 	}
 	dlog.Error("Timeout while waiting for network connectivity")
