@@ -57,6 +57,7 @@ func NetProbe(proxy *Proxy, address string, timeout int) error {
 			dlog.Debug(err)
 			time.Sleep(1 * time.Second)
 			pc.Close()
+			// Needed to exit NetProbe since the packet can be blocked by a firewall but a connection to the query addr may be established
 			if Bypass_NetProbe == 3 {
 				return nil
 			}
