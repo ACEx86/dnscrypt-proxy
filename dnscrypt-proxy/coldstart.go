@@ -138,6 +138,7 @@ func addColdStartListener(
 	go func() {
 		for !handleColdStartClient(clientPc, captivePortalHandler.cancelChannel, ipsMap) {
 		}
+		// TODO: Here.
 		clientPc.Close()
 		captivePortalHandler.wg.Done()
 	}()
