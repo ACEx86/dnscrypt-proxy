@@ -195,6 +195,11 @@ func (serversInfo *ServersInfo) refreshServer(proxy *Proxy, name string, stamp s
 	if err != nil {
 		return err
 	}
+	//
+	if Bypass_NetProbe != 3 {
+		Bypass_NetProbe = 3
+		dlog.Infof(" ( + ) Network Connectivity Detected")
+	}
 	if name != newServer.Name {
 		dlog.Fatalf("[%s] != [%s]", name, newServer.Name)
 	}
@@ -221,7 +226,7 @@ func (serversInfo *ServersInfo) refreshServer(proxy *Proxy, name string, stamp s
 }
 
 func (serversInfo *ServersInfo) refresh(proxy *Proxy) (int, error) {
-	dlog.Debug("Refreshing certificates")
+	dlog.Info("Refreshing certificates")
 	serversInfo.RLock()
 	// Appending registeredServers slice from sources may allocate new memory.
 	serversCount := len(serversInfo.registeredServers)
@@ -288,7 +293,7 @@ func (serversInfo *ServersInfo) estimatorUpdate(currentActive int) {
 	partialSort := false
 	if candidateRtt < currentActiveRtt {
 		serversInfo.inner[candidate], serversInfo.inner[currentActive] = serversInfo.inner[currentActive], serversInfo.inner[candidate]
-		dlog.Debugf(
+		dlog.Infof(
 			"New preferred candidate: %s (RTT: %d vs previous: %d)",
 			serversInfo.inner[currentActive].Name,
 			int(candidateRtt),
@@ -298,7 +303,7 @@ func (serversInfo *ServersInfo) estimatorUpdate(currentActive int) {
 	} else if candidateRtt > 0 && candidateRtt >= (serversInfo.inner[0].rtt.Value()+serversInfo.inner[activeCount-1].rtt.Value())/2.0*4.0 {
 		if time.Since(serversInfo.inner[candidate].lastActionTS) > time.Duration(1*time.Minute) {
 			serversInfo.inner[candidate].rtt.Add(candidateRtt / 2.0)
-			dlog.Debugf(
+			dlog.Infof(
 				"Giving a new chance to candidate [%s], lowering its RTT from %d to %d (best: %d)",
 				serversInfo.inner[candidate].Name,
 				int(candidateRtt),
@@ -329,7 +334,7 @@ func (serversInfo *ServersInfo) getOne() *ServerInfo {
 		serversInfo.estimatorUpdate(candidate)
 	}
 	serverInfo := serversInfo.inner[candidate]
-	dlog.Debugf("Using candidate [%s] RTT: %d", serverInfo.Name, int(serverInfo.rtt.Value()))
+	dlog.Infof("Using candidate [%s] RTT: %d", serverInfo.Name, int(serverInfo.rtt.Value()))
 	serversInfo.Unlock()
 
 	return serverInfo
@@ -586,7 +591,7 @@ func fetchDNSCryptServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp
 		knownBugs,
 	)
 	if !knownBugs.fragmentsBlocked && fragmentsBlocked {
-		dlog.Debugf("[%v] drops fragmented queries", name)
+		dlog.Infof("[%v] drops fragmented queries", name)
 		knownBugs.fragmentsBlocked = true
 	}
 	if knownBugs.fragmentsBlocked && relay != nil && relay.Dnscrypt != nil {
@@ -623,7 +628,7 @@ func fetchDNSCryptServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp
 		if err == nil && len(msg.Question) > 0 {
 			question := msg.Question[0]
 			if question.Qtype == query.Question[0].Qtype && strings.EqualFold(question.Name, query.Question[0].Name) {
-				dlog.Debugf("[%s] also serves plaintext DNS", name)
+				dlog.Infof("[%s] also serves plaintext DNS", name)
 				if msg.Id != 0xcafe {
 					dlog.Infof("[%s] handling of DNS message identifiers is broken", name)
 				}
@@ -730,24 +735,41 @@ func fetchDoHServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp, isN
 			proxy.xTransport.saveCachedIP(host, ip, -1*time.Second)
 		}
 	}
-	url := &url.URL{
+	curl := &url.URL{
 		Scheme: "https",
 		Host:   stamp.ProviderName,
 		Path:   stamp.Path,
 	}
 	body := dohTestPacket(0xcafe)
 	useGet := false
-	if _, _, _, _, err := proxy.xTransport.DoHQuery(useGet, url, body, proxy.timeout); err != nil {
+	tmp_time := time.Duration(time.Now().Second()) * time.Second
+	dlog.Infof("Time %v", tmp_time)
+	var errq error = nil
+	//_, _, _, tmp_time, errq := proxy.xTransport.DoHQuery(useGet, curl, body, proxy.timeout)
+	// Retry Post.
+	dlog.Infof("DoH server info", name)
+	for sum := 0; sum < 5; sum++ {
+		_, _, _, tmp_time, errq = proxy.xTransport.DoHQuery(useGet, curl, body, proxy.timeout)
+		if tmp_time <= 0 {
+			dlog.Info("DoH Server Info Query timeout...")
+		} else {
+			break
+		}
+	}
+	if errq != nil {
+		if tmp_time > 0 {
+
+		}
 		useGet = true
-		if _, _, _, _, err := proxy.xTransport.DoHQuery(useGet, url, body, proxy.timeout); err != nil {
+		if _, _, _, _, err := proxy.xTransport.DoHQuery(useGet, curl, body, proxy.timeout); err != nil {
 			return ServerInfo{}, err
 		}
-		dlog.Debugf("Server [%s] doesn't appear to support POST; falling back to GET requests", name)
+		dlog.Infof("Server [%s] doesn't appear to support POST; falling back to GET requests", name)
 	}
 	body = dohNXTestPacket(0xcafe)
-	serverResponse, _, tls, rtt, err := proxy.xTransport.DoHQuery(useGet, url, body, proxy.timeout)
+	serverResponse, _, tls, rtt, err := proxy.xTransport.DoHQuery(useGet, curl, body, proxy.timeout)
 	if err != nil {
-		dlog.Infof("[%s] [%s]: %v", name, url, err)
+		dlog.Infof("[%s] [%s]: %v", name, curl, err)
 		return ServerInfo{}, err
 	}
 	if tls == nil || !tls.HandshakeComplete {
@@ -767,6 +789,8 @@ func fetchDoHServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp, isN
 	}
 	if strings.HasPrefix(protocol, "http/1.") {
 		dlog.Warnf("[%s] does not support HTTP/2 nor HTTP/3", name)
+		err = errors.New("Error: Protocol HTTP/1.x")
+		return ServerInfo{}, err
 	}
 	dlog.Infof("[%s] TLS version: %x - Protocol: %v - Cipher suite: %v", name, tls.Version, protocol, tls.CipherSuite)
 	showCerts := proxy.showCerts
@@ -777,7 +801,7 @@ func fetchDoHServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp, isN
 		if showCerts {
 			dlog.Noticef("Advertised cert: [%s] [%x]", cert.Subject, h)
 		} else {
-			dlog.Debugf("Advertised cert: [%s] [%x]", cert.Subject, h)
+			dlog.Infof("Advertised cert: [%s] [%x]", cert.Subject, h)
 		}
 		for _, hash := range stamp.Hashes {
 			if len(hash) == len(wantedHash) {
@@ -811,7 +835,7 @@ func fetchDoHServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp, isN
 		Proto:      stamps.StampProtoTypeDoH,
 		Name:       name,
 		Timeout:    proxy.timeout,
-		URL:        url,
+		URL:        curl,
 		HostName:   stamp.ProviderName,
 		initialRtt: xrtt,
 		useGet:     useGet,
@@ -823,7 +847,7 @@ func fetchTargetConfigsFromWellKnown(proxy *Proxy, url *url.URL) ([]ODoHTargetCo
 	if err != nil {
 		return nil, err
 	}
-	if statusCode < 200 || statusCode >= 300 {
+	if statusCode < 200 || statusCode > 299 {
 		return nil, fmt.Errorf("HTTP status code was %v", statusCode)
 	}
 	return parseODoHTargetConfigs(bin)
@@ -858,10 +882,10 @@ func _fetchODoHTargetInfo(proxy *Proxy, name string, stamp stamps.ServerStamp, i
 		}
 	}
 
-	dlog.Debugf("Pausing after ODoH configuration retrieval")
+	dlog.Infof("Pausing after ODoH configuration retrieval")
 	delay := time.Duration(rand.Intn(5*1000)) * time.Millisecond
 	clocksmith.Sleep(time.Duration(delay))
-	dlog.Debugf("Pausing done")
+	dlog.Infof("Pausing done")
 
 	targetURL := &url.URL{
 		Scheme: "https",
@@ -874,7 +898,7 @@ func _fetchODoHTargetInfo(proxy *Proxy, name string, stamp stamps.ServerStamp, i
 		odohTargetConfigs[i], odohTargetConfigs[j] = odohTargetConfigs[j], odohTargetConfigs[i]
 	})
 	for _, odohTargetConfig := range odohTargetConfigs {
-		url := relay.ODoH.URL
+		curl := relay.ODoH.URL
 
 		query := dohTestPacket(0xcafe)
 		odohQuery, err := odohTargetConfig.encryptQuery(query)
@@ -883,12 +907,12 @@ func _fetchODoHTargetInfo(proxy *Proxy, name string, stamp stamps.ServerStamp, i
 		}
 
 		useGet := false
-		if _, _, _, _, err := proxy.xTransport.ObliviousDoHQuery(useGet, url, odohQuery.odohMessage, proxy.timeout); err != nil {
+		if _, _, _, _, err := proxy.xTransport.ObliviousDoHQuery(useGet, curl, odohQuery.odohMessage, proxy.timeout); err != nil {
 			useGet = true
-			if _, _, _, _, err := proxy.xTransport.ObliviousDoHQuery(useGet, url, odohQuery.odohMessage, proxy.timeout); err != nil {
+			if _, _, _, _, err := proxy.xTransport.ObliviousDoHQuery(useGet, curl, odohQuery.odohMessage, proxy.timeout); err != nil {
 				continue
 			}
-			dlog.Debugf("Server [%s] doesn't appear to support POST; falling back to GET requests", name)
+			dlog.Infof("Server [%s] doesn't appear to support POST; falling back to GET requests", name)
 		}
 
 		query = dohNXTestPacket(0xcafe)
@@ -899,7 +923,7 @@ func _fetchODoHTargetInfo(proxy *Proxy, name string, stamp stamps.ServerStamp, i
 
 		responseBody, responseCode, tls, rtt, err := proxy.xTransport.ObliviousDoHQuery(
 			useGet,
-			url,
+			curl,
 			odohQuery.odohMessage,
 			proxy.timeout,
 		)
@@ -955,7 +979,7 @@ func _fetchODoHTargetInfo(proxy *Proxy, name string, stamp stamps.ServerStamp, i
 				if showCerts {
 					dlog.Noticef("Advertised relay cert: [%s] [%x]", cert.Subject, h)
 				} else {
-					dlog.Debugf("Advertised relay cert: [%s] [%x]", cert.Subject, h)
+					dlog.Infof("Advertised relay cert: [%s] [%x]", cert.Subject, h)
 				}
 				for _, hash := range stamp.Hashes {
 					if len(hash) == len(wantedHash) {
