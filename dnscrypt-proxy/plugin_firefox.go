@@ -1,5 +1,5 @@
 // Work around Mozilla's evil plan - https://sk.tl/3Ek6tzhq
-
+// Try to work around the null dereference on the dns the proxy will query null
 package main
 
 import (

@@ -81,7 +81,7 @@ func parseODoHTargetConfigs(configs []byte) ([]ODoHTargetConfig, error) {
 		configLength := binary.BigEndian.Uint16(configs[offset+2 : offset+4])
 		if configVersion == odohVersion || configVersion == odohTestVersion {
 			if configVersion != odohVersion {
-				dlog.Debugf("Server still uses the legacy 0x%x ODoH version", configVersion)
+				dlog.Infof("Server still uses the legacy 0x%x ODoH version", configVersion)
 			}
 			target, err := parseODoHTargetConfig(configs[offset+4 : offset+4+int(configLength)])
 			if err == nil {

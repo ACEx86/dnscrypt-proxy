@@ -100,7 +100,7 @@ func FetchCurrentDNSCryptCert(
 		case 0x0002:
 			cryptoConstruction = XChacha20Poly1305
 		default:
-			dlog.Debugf("[%v] uses an unsupported encryption system", *serverName)
+			dlog.Infof("[%v] uses an unsupported encryption system", *serverName)
 			continue
 		}
 		signature := binCert[8:72]
@@ -134,7 +134,7 @@ func FetchCurrentDNSCryptCert(
 			} else if daysLeft <= 30 {
 				dlog.Infof("[%v] certificate will expire in %d days", *serverName, daysLeft)
 			} else {
-				dlog.Debugf("[%v] certificate still valid for %d days", *serverName, daysLeft)
+				dlog.Infof("[%v] certificate still valid for %d days", *serverName, daysLeft)
 			}
 			certInfo.ForwardSecurity = false
 		} else {
@@ -142,7 +142,7 @@ func FetchCurrentDNSCryptCert(
 		}
 		if !proxy.certIgnoreTimestamp {
 			if now > tsEnd || now < tsBegin {
-				dlog.Debugf(
+				dlog.Infof(
 					"[%v] Certificate not valid at the current date (now: %v is not in [%v..%v])",
 					*serverName,
 					now,
@@ -153,15 +153,15 @@ func FetchCurrentDNSCryptCert(
 			}
 		}
 		if serial < highestSerial {
-			dlog.Debugf("[%v] Superseded by a previous certificate", *serverName)
+			dlog.Infof("[%v] Superseded by a previous certificate", *serverName)
 			continue
 		}
 		if serial == highestSerial {
 			if cryptoConstruction < certInfo.CryptoConstruction {
-				dlog.Debugf("[%v] Keeping the previous, preferred crypto construction", *serverName)
+				dlog.Infof("[%v] Keeping the previous, preferred crypto construction", *serverName)
 				continue
 			} else {
-				dlog.Debugf("[%v] Upgrading the construction from %v to %v", *serverName, certInfo.CryptoConstruction, cryptoConstruction)
+				dlog.Infof("[%v] Upgrading the construction from %v to %v", *serverName, certInfo.CryptoConstruction, cryptoConstruction)
 			}
 		}
 		if cryptoConstruction != XChacha20Poly1305 && cryptoConstruction != XSalsa20Poly1305 {

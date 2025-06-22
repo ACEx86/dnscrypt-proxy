@@ -40,6 +40,7 @@ const (
 	ExpiredCachedIPGraceTTL  = 15 * time.Minute
 )
 
+// Some variables
 var rebuildingTransport bool = false
 var hasTLSConnected int = 0
 
