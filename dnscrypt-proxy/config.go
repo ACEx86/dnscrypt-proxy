@@ -449,7 +449,7 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 	configureSourceRestrictions(proxy, flags, &config)
 
 	// Initialize networking
-	if err := initializeNetworking(proxy, flags, &config); err != nil {
+	if err := initializeNetworking(proxy, flags); err != nil {
 		return err
 	}
 
@@ -510,6 +510,9 @@ func ConfigLoad(proxy *Proxy, flags *ConfigFlags) error {
 		dlog.Notice("Configuration successfully checked")
 		os.Exit(0)
 	}
+
+	// Execute the network probing
+	execNetProbe(proxy, flags, &config)
 
 	return nil
 }
@@ -723,10 +726,6 @@ func (config *Config) loadSource(proxy *Proxy, cfgSourceName string, cfgSource *
 		}
 		proxy.sources = append(proxy.sources, source)
 		break
-	}
-	if Bypass_NetProbe == 2 {
-		Bypass_NetProbe = 3
-		dlog.Notice("Network connectivity detected")
 	}
 	dlog.Notice("Loading source done!")
 	return nil
