@@ -41,6 +41,7 @@ const (
 )
 
 var rebuildingTransport bool = false
+var isTLSConnected bool = false
 
 type CachedIPItem struct {
 	ip            net.IP
@@ -182,13 +183,13 @@ func (xTransport *XTransport) loadCachedIP(host string) (ip net.IP, expired bool
 // Rebuild the transport. This will maybe drop the connection protocol or cipher
 func (xTransport *XTransport) rebuildTransport() {
 	if rebuildingTransport {
-		dlog.Notice(" ( ! ) rebuildTransport is been executed")
+		dlog.Notice(" ( ! ) Transport: Rebuilding is been executed")
 		return
 	}
 	rebuildingTransport = true
-	dlog.Info(" ( < ! > ) Transport : RE BUILDING")
-	if xTransport.transport != nil { //<<---
-		dlog.Info("[ < ! > ] [ < ! > ] Closing idle connections")
+	dlog.Info(" ( + ) Transport: Rebuilding")
+	if xTransport.transport != nil {
+		dlog.Info(" ( ! ) Transport: Closing idle connections")
 		xTransport.transport.CloseIdleConnections()
 	}
 	timeout := xTransport.timeout
@@ -286,7 +287,7 @@ func (xTransport *XTransport) rebuildTransport() {
 		if xTransport.tlsCipherSuite != nil && len(xTransport.tlsCipherSuite) > 0 {
 			var tls13 = "198 199 4865 4866 4867 4868 4869 49332 49333"
 			var tls_secure = "4865 4866 4868 49195 49196 49199 49200 52392 52393"
-			var only13 = 0
+			var is_tls13 = 0
 			var SuitesCount = 0
 			for _, expectedSuiteID := range xTransport.tlsCipherSuite {
 				check := strconv.Itoa(int(expectedSuiteID))
@@ -297,25 +298,26 @@ func (xTransport *XTransport) rebuildTransport() {
 				}
 				SuitesCount += 1
 				if strings.Contains(tls13, check) {
-					only13 += 1
+					is_tls13 += 1
 				}
 			}
-			if only13 != SuitesCount {
-				tlsClientConfig.CipherSuites = xTransport.tlsCipherSuite
-				dlog.Info("(!) Explicit cipher suite configured downgrading to TLS 1.2")
+			if is_tls13 != SuitesCount {
+				dlog.Info(" ( ! ) Explicit cipher suite configured downgrading to TLS 1.2")
 				xTransport.MaxVersion = tls.VersionTLS12
+				tlsClientConfig.CipherSuites = xTransport.tlsCipherSuite
 				tlsClientConfig.MaxVersion = tls.VersionTLS12
 			} else {
 				xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
-				dlog.Noticef("Configured Cipher Suites is unsupported with TLS 1.2. Adding Cipher Suites:  %v", xTransport.tlsCipherSuite)
-				xTransport.MaxVersion = tls.VersionTLS12
-				tlsClientConfig.MaxVersion = tls.VersionTLS12
+				dlog.Noticef(" ( ! ) Configured cipher suites is unsupported with TLS 1.2. Adding default secure cipher suites:  %v", xTransport.tlsCipherSuite)
 				xTransport.CSHandleError = 2
+				xTransport.MaxVersion = tls.VersionTLS12
+				tlsClientConfig.CipherSuites = xTransport.tlsCipherSuite
+				tlsClientConfig.MaxVersion = tls.VersionTLS12
 			}
 		} else if xTransport.CSHandleError == 0 {
+			xTransport.CSHandleError = 2
 			xTransport.MaxVersion = tls.VersionTLS12
 			tlsClientConfig.MaxVersion = tls.VersionTLS12
-			xTransport.CSHandleError = 2
 		}
 	}
 	transport.TLSClientConfig = &tlsClientConfig
@@ -364,7 +366,7 @@ func (xTransport *XTransport) rebuildTransport() {
 		xTransport.h3Transport = h3Transport
 	}
 	rebuildingTransport = false
-	dlog.Info(" ( + ) Transport - READY!")
+	dlog.Info(" ( + ) Transport: Rebuilding done")
 }
 
 // Resolve using the system resolver: net.LookupHost
@@ -379,7 +381,6 @@ func (xTransport *XTransport) resolveUsingSystem(host string) (ip net.IP, ttl ti
 		}
 		ips := make([]net.IP, 0)
 		for _, ip := range foundIPs {
-			dlog.Infof("IP: %v", ip)
 			if foundIP := net.ParseIP(ip); foundIP != nil {
 				if xTransport.useIPv4 {
 					if ipv4 := foundIP.To4(); ipv4 != nil {
@@ -417,9 +418,6 @@ func (xTransport *XTransport) resolveUsingResolver(
 			for _, answer := range in.Answer {
 				if answer != nil && answer.Header().Rrtype == dns.TypeA && answer.Header().Rdlength > 0 && answer.Header().Rdlength < uint16(MaxDNSPacketSize) && answer.Header().String() != "" {
 					answers = append(answers, answer)
-					dlog.Infof("DNS Answers: %v", answer)
-				} else {
-					dlog.Info(answer)
 				}
 			}
 			// Rand choose IP from Answers
@@ -521,7 +519,6 @@ func (xTransport *XTransport) resolveAndUpdateCache(host string, is_STAMP bool) 
 							proto,
 						)
 					}
-					dlog.Infof("PROTO:  %v  		|| HOST:  %v  		||  RESOLVERS:  %v", proto, host, xTransport.bootstrapResolvers)
 					foundIP, ttl, err = xTransport.resolveUsingResolvers(proto, host, xTransport.bootstrapResolvers)
 					if err == nil {
 						break
@@ -552,7 +549,7 @@ func (xTransport *XTransport) resolveAndUpdateCache(host string, is_STAMP bool) 
 		}
 
 		if err != nil && xTransport.ignoreSystemDNS == false {
-			dlog.Noticef("Bootstrap resolvers didn't respond - Trying with the system resolver as a last resort")
+			dlog.Noticef(" ( + ) Bootstrap resolvers didn't respond - Trying with the system resolver as a last resort")
 			foundIP, ttl, err = xTransport.resolveUsingSystem(host)
 			if err != nil {
 				err = errors.New("system DNS error")
@@ -560,9 +557,9 @@ func (xTransport *XTransport) resolveAndUpdateCache(host string, is_STAMP bool) 
 			}
 		} else if err != nil && xTransport.ignoreSystemDNS == true {
 			if len(xTransport.bootstrapResolvers) > 0 {
-				dlog.Noticef("Bootstrap resolver failled and we are ignoring system dns")
+				dlog.Noticef(" ( ! ) Bootstrap resolver failled and we are ignoring system dns")
 			} else {
-				dlog.Noticef("Bootstrap resolvers is not set and we are ignoring system dns")
+				dlog.Noticef(" ( ! ) Bootstrap resolvers is not set and we are ignoring system dns")
 			}
 		}
 	}
@@ -618,7 +615,7 @@ func (xTransport *XTransport) Fetch(
 	host, port := ExtractHostAndPort(url.Host, 443)
 	hasAltSupport := false
 	is_http2 := true
-	dlog.Infof("Fetching %s %s %s", method, url.Scheme, url.Host)
+	dlog.Infof(" ( + ) Fetching %s %s %s", method, url.Scheme, url.Host)
 	if xTransport.http3 == true && xTransport.h3Transport != nil {
 		is_http2 = false
 		if xTransport.http3Probe {
@@ -654,7 +651,6 @@ func (xTransport *XTransport) Fetch(
 	header["Cache-Control"] = []string{"max-stale"}
 
 	if body != nil {
-		dlog.Infof("Body: [%s]", body)
 		h := sha512.Sum512(*body)
 		qs := url.Query()
 		qs.Add("body_hash", hex.EncodeToString(h[:32]))
@@ -765,9 +761,9 @@ func (xTransport *XTransport) Fetch(
 
 	// Handle TLS Cipher Suite errors
 	if err != nil {
-		dlog.Infof("HTTP client error: [%v] - closing idle connections", err)
+		dlog.Infof(" ( ! ) HTTP client error: [%v] - closing idle connections", err)
 		xTransport.transport.CloseIdleConnections()
-		dlog.Infof("HANDLE ERROR: [%v] TLS VERSION: [%v]", xTransport.CSHandleError, xTransport.MaxVersion)
+		//dlog.Infof("HANDLE ERROR: [%v] TLS VERSION: [%v]", xTransport.CSHandleError, xTransport.MaxVersion)
 		if xTransport.MaxVersion == tls.VersionTLS13 { // Fall to TLS1.2 with TLS1.3 error
 			if strings.Contains(err.Error(), "handshake failure") {
 				if xTransport.CSHandleError == 0 && rtt < timeout {
@@ -790,9 +786,15 @@ func (xTransport *XTransport) Fetch(
 						xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
 						xTransport.keepCipherSuite = true
 					case 1: // TLS 1.2 even after Cipher Suites failed upgrade
-						dlog.Info("TLS 1.2 configured cipher suites failed. Upgrading to TLS 1.3")
-						xTransport.keepCipherSuite = false
-						xTransport.CSHandleError = 0
+						if !isTLSConnected {
+							dlog.Info("TLS 1.2 configured cipher suites failed. Upgrading to TLS 1.3")
+							xTransport.keepCipherSuite = false
+							xTransport.CSHandleError = 0
+						} else {
+							dlog.Info("TLS 1.2 configured cipher suites failed. Upgrading to TLS 1.3")
+							xTransport.keepCipherSuite = false
+							xTransport.CSHandleError = 0
+						}
 					case 2:
 						dlog.Info("Dynamically adjusted server used Cipher Suite have failed. Adding more Cipher Suites for TLS 1.2")
 						xTransport.CSHandleError = 1
@@ -881,10 +883,6 @@ func (xTransport *XTransport) Fetch(
 
 	// Process the response
 	if resp != nil {
-		if Bypass_NetProbe < 3 {
-			Bypass_NetProbe = 3
-			dlog.Notice("Network connectivity detected")
-		}
 		ctls := resp.TLS
 		current_tls := ctls.CipherSuite
 		tls_version := ctls.Version
@@ -894,8 +892,6 @@ func (xTransport *XTransport) Fetch(
 			err := errors.New("No TLS")
 			return nil, 0, nil, 0, err
 		}
-		dlog.Infof("Current TLS: [%v]", current_tls)
-		// Maybe problem with CSerr = 3
 		if tls_version == uint16(xTransport.MaxVersion) {
 			ignore_response := true
 			if tls_version == 0x0304 { // Using TLS 1.3
@@ -906,32 +902,31 @@ func (xTransport *XTransport) Fetch(
 					return nil, 0, nil, 0, err
 				}
 			} else if tls_version == 0x0303 { // Using TLS 1.2
-				if xTransport.CSHandleError == 3 { // No Cipher Suite at start up add server Cipher Suite
-					if xTransport.tlsCipherSuite == nil {
-						if resp.TLS != nil {
-							// Don't add TLS from public resolver domains it may be incompatible with resolver
-							if !strings.Contains(req.URL.String(), ".md") && strings.Contains(tls12_safe, strconv.Itoa(int(current_tls))) {
-								xTransport.tlsCipherSuite = []uint16{current_tls}
-								xTransport.transport.TLSClientConfig.CipherSuites = []uint16{current_tls}
-								xTransport.keepCipherSuite = true
-								xTransport.CSHandleError = 2
-								dlog.Infof("No TLS configured. Adding connections specified TLS to Cipher Suite:  %v", xTransport.tlsCipherSuite)
-								xTransport.rebuildTransport()
+				if strings.Contains(tls12_safe, strconv.Itoa(int(current_tls))) {
+					if xTransport.tlsCipherSuite == nil { // No Cipher Suite at start up add server Cipher Suite
+						if xTransport.CSHandleError == 3 {
+							if resp.TLS != nil {
+								// Don't add TLS from public resolver domains it may be incompatible with resolver
+								if !strings.Contains(req.URL.String(), ".md") {
+									xTransport.tlsCipherSuite = []uint16{current_tls}
+									xTransport.transport.TLSClientConfig.CipherSuites = []uint16{current_tls}
+									xTransport.keepCipherSuite = true
+									xTransport.CSHandleError = 2
+									dlog.Infof(" ( + ) TLS: Not configured. Adding connections specified tls to Cipher Suite: [ %v ]", xTransport.tlsCipherSuite)
+									xTransport.rebuildTransport()
+								}
+							} else {
+								dlog.Warn(" ( ! ) TLS: Not configured and servers tls is not applicable because it is empty.")
 							}
-						} else {
-							dlog.Warn("No TLS configured and server TLS is not applicable because it is nil.")
 						}
 					}
-				}
-
-				if strings.Contains(tls12_safe, strconv.Itoa(int(current_tls))) {
 					ignore_response = false
 				} else {
-					err := errors.New("unsafe TLS Usage")
+					err := errors.New("unsafe tls Usage")
 					return nil, 0, nil, 0, err
 				}
 			} else {
-				err := errors.New("unexpected TLS Version")
+				err := errors.New("unexpected tls Version")
 				return nil, 0, nil, 0, err
 			}
 			if ignore_response == false {
@@ -956,7 +951,6 @@ func (xTransport *XTransport) Fetch(
 						if errbc != nil {
 							return nil, 0, nil, 0, errbc
 						}
-						dlog.Infof("Bin: [%v]", bin)
 						if err != nil {
 							return nil, statusCode, ctls, rtt, err
 						}
@@ -970,7 +964,7 @@ func (xTransport *XTransport) Fetch(
 				return nil, 0, nil, rtt, err
 			}
 		} else {
-			err := errors.New("unexpected TLS usage")
+			err := errors.New("unexpected tls usage")
 			return nil, statusCode, ctls, rtt, err
 		}
 	} else {
