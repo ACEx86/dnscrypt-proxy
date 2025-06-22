@@ -455,7 +455,7 @@ func determineNetprobeAddress(flags *ConfigFlags, config *Config) (string, int) 
 	}
 
 	netprobeAddress := DefaultNetprobeAddress
-	if len(config.NetprobeAddress) > 0 && Bypass_NetProbe == 1 {
+	if len(config.NetprobeAddress) > 0 {
 		netprobeAddress = config.NetprobeAddress
 	}
 	if len(netprobeAddress) <= 0 || netprobeAddress == "" {
@@ -465,13 +465,8 @@ func determineNetprobeAddress(flags *ConfigFlags, config *Config) (string, int) 
 	return netprobeAddress, netprobeTimeout
 }
 
-// initializeNetworking - Initializes networking
-func initializeNetworking(proxy *Proxy, flags *ConfigFlags, config *Config) error {
-	isCommandMode := *flags.Check || proxy.showCerts || *flags.List || *flags.ListAll
-	if isCommandMode {
-		return nil
-	}
-
+// execNetProbe - Execute network probing
+func execNetProbe(proxy *Proxy, flags *ConfigFlags, config *Config) {
 	netprobeAddress, netprobeTimeout := determineNetprobeAddress(flags, config)
 	if netprobeTimeout > 0 {
 		var nerr error = nil
@@ -490,14 +485,22 @@ func initializeNetworking(proxy *Proxy, flags *ConfigFlags, config *Config) erro
 			}
 			if nerr != nil {
 				if Bypass_NetProbe > 1 {
-					dlog.Notice("Netprobe failed but network connectivity detected")
+					dlog.Notice(" ( ! ) Netprobe failed but network connectivity detected")
 				} else {
 					dlog.Notice(nerr)
 				}
 			}
 		}
 	} else {
-		dlog.Notice("Netprobe is disabled.")
+		dlog.Notice(" ( - ) Netprobe is disabled.")
+	}
+}
+
+// initializeNetworking - Initializes networking
+func initializeNetworking(proxy *Proxy, flags *ConfigFlags) error {
+	isCommandMode := *flags.Check || proxy.showCerts || *flags.List || *flags.ListAll
+	if isCommandMode {
+		return nil
 	}
 
 	for _, listenAddrStr := range proxy.listenAddresses {
