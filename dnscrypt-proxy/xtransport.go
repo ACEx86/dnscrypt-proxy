@@ -43,6 +43,7 @@ const (
 // Some variables
 var rebuildingTransport bool = false
 var hasTLSConnected int = 0
+var preferIPv6 = false
 
 type CachedIPItem struct {
 	ip            net.IP
@@ -328,7 +329,7 @@ func (xTransport *XTransport) rebuildTransport() {
 	}
 	xTransport.transport = transport
 	if xTransport.http3 {
-		dial := func(ctx context.Context, addrStr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
+		dial := func(ctx context.Context, addrStr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
 			dlog.Infof("Dialing for H3: [%v]", addrStr)
 			host, port := ExtractHostAndPort(addrStr, stamps.DefaultPort)
 			ipOnly := host
@@ -344,26 +345,37 @@ func (xTransport *XTransport) rebuildTransport() {
 			} else {
 				dlog.Infof("[%s] IP address was not cached in H3 context", host)
 				if xTransport.useIPv6 {
-					if xTransport.useIPv4 {
-						network = "udp"
-					} else {
-						network = "udp6"
-					}
+					network = "udp6"
+				}
+				if xTransport.useIPv4 && !preferIPv6 {
+					network = "udp4"
 				}
 			}
 			addrStr = ipOnly + ":" + strconv.Itoa(port)
+
 			udpAddr, err := net.ResolveUDPAddr(network, addrStr)
 			if err != nil {
 				return nil, err
 			}
+
 			udpConn, err := net.ListenUDP(network, nil)
 			if err != nil {
 				return nil, err
 			}
+
 			tlsCfg.ServerName = host
-			return quic.DialEarly(ctx, udpConn, udpAddr, tlsCfg, cfg)
+
+			conn, err := quic.Dial(ctx, udpConn, udpAddr, tlsCfg, cfg)
+			if err != nil {
+				return nil, err
+			}
+			return conn, nil
 		}
-		h3Transport := &http3.Transport{DisableCompression: true, TLSClientConfig: &tlsClientConfig, Dial: dial}
+		h3Transport := &http3.Transport{
+			DisableCompression: true,
+			TLSClientConfig:    &tlsClientConfig,
+			Dial:               dial,
+		}
 		xTransport.h3Transport = h3Transport
 	}
 	rebuildingTransport = false
