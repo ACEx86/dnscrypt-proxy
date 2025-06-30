@@ -621,6 +621,8 @@ func (xTransport *XTransport) Fetch(
 	if timeout <= 0 || timeout > xTransport.timeout {
 		timeout = xTransport.timeout
 	}
+
+	// Setup HTTP client with timeout and transport
 	client := http.Client{
 		Transport: xTransport.transport,
 		Timeout:   timeout,
@@ -672,6 +674,7 @@ func (xTransport *XTransport) Fetch(
 		url = &url2
 	}
 
+	// Reject .onion if no proxy dialer
 	if xTransport.proxyDialer == nil && strings.HasSuffix(host, ".onion") {
 		return nil, 0, nil, 0, errors.New("onion service is not reachable without Tor")
 	}
@@ -682,6 +685,7 @@ func (xTransport *XTransport) Fetch(
 	if rebuildingTransport {
 		return nil, 0, nil, 0, errors.New("rebuilding transport")
 	}
+	// Resolve host with caching
 	if err := xTransport.resolveAndUpdateCache(host, is_STAMP); err != nil {
 		dlog.Errorf(
 			"Unable to resolve [%v] - Make sure that the system resolver works, or that `bootstrap_resolvers` has been set to resolvers that can be reached",
@@ -702,6 +706,7 @@ func (xTransport *XTransport) Fetch(
 		Header: header,
 		Close:  true,
 	}
+
 	if body != nil {
 		if int64(len(*body)) <= int64(MaxDNSPacketSize) {
 			req.ContentLength = int64(len(*body))
@@ -720,6 +725,7 @@ func (xTransport *XTransport) Fetch(
 	if rebuildingTransport {
 		return nil, 0, nil, 0, errors.New("rebuilding transport")
 	}
+	// Send request and measure RTT
 	start := time.Now()
 	resp, err := client.Do(req)
 	rtt := time.Since(start)
@@ -778,8 +784,9 @@ func (xTransport *XTransport) Fetch(
 	if err != nil {
 		dlog.Infof(" ( ! ) HTTP client error: [%v] - closing idle connections", err)
 		xTransport.transport.CloseIdleConnections()
+		getErrDetails := err.Error()
 		if xTransport.MaxVersion == tls.VersionTLS13 { // Fall to TLS1.2 with TLS1.3 error
-			if strings.Contains(err.Error(), "handshake failure") {
+			if strings.Contains(getErrDetails, "handshake failure") {
 				if xTransport.CSHandleError == 0 && rtt < timeout {
 					if xTransport.tlsCipherSuite == nil {
 						xTransport.CSHandleError = 3
@@ -792,10 +799,10 @@ func (xTransport *XTransport) Fetch(
 			}
 		} else if xTransport.MaxVersion == tls.VersionTLS12 {
 			if xTransport.keepCipherSuite == true {
-				if (strings.Contains(err.Error(), "handshake failure") || strings.Contains(err.Error(), "tls: error decoding message")) && rtt < timeout {
+				if (strings.Contains(getErrDetails, "handshake failure") || strings.Contains(getErrDetails, "tls: error decoding message")) && rtt < timeout {
 					switch xTransport.CSHandleError {
 					case 0:
-						dlog.Warnf("TLS 1.2 configured cipher suite failed. Adding more Cipher Suites - You can try changing or deleting the tls_cipher_suite value in the configuration file")
+						dlog.Warnf("TLS 1.2 configured cipher suite failed (You can try changing or deleting the tls_cipher_suite value in the configuration file). Adding more Cipher Suites.")
 						xTransport.CSHandleError = 1
 						xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
 						xTransport.keepCipherSuite = true
@@ -824,7 +831,7 @@ func (xTransport *XTransport) Fetch(
 									dlog.Infof("No TLS configured. Adding connections specified TLS to Cipher Suite:  %v", xTransport.tlsCipherSuite)
 									hasTLSConnected = 0
 								} else {
-									dlog.Warn("No TLS configured and server TLS is not applicable because Client cipher suite is not empty.")
+									dlog.Warn("No TLS configured and server TLS is not applicable because client cipher suite is not empty.")
 								}
 							} else {
 								dlog.Warn("No TLS configured and server TLS is not applicable because TLS is empty.")
@@ -920,7 +927,7 @@ func (xTransport *XTransport) Fetch(
 					if xTransport.tlsCipherSuite == nil { // No Cipher Suite at start up add server Cipher Suite
 						if xTransport.CSHandleError == 3 {
 							// Don't add TLS from public resolver domains it may be incompatible with resolver
-							if !strings.Contains(req.URL.String(), ".md") {
+							if !is_STAMP {
 								xTransport.tlsCipherSuite = []uint16{current_tls}
 								xTransport.transport.TLSClientConfig.CipherSuites = []uint16{current_tls}
 								xTransport.keepCipherSuite = true
@@ -930,42 +937,45 @@ func (xTransport *XTransport) Fetch(
 							}
 						}
 					}
+					if hasTLSConnected >= 0 {
+						if hasTLSConnected < 10 {
+							hasTLSConnected += 1
+						}
+					} else {
+						hasTLSConnected = 0
+					}
 					ignore_response = false
 				} else { // Manage other TLS
 					err := errors.New("unsafe tls Usage")
 					return nil, 0, nil, 0, err
 				}
-			} else {
+			} else { // Drop other TLS versions
 				err := errors.New("unexpected tls Version")
 				return nil, 0, nil, 0, err
 			}
 			if ignore_response == false {
 				if resp.Body != nil {
 					var bodyReader io.ReadCloser = resp.Body
-					deferr := false
+					encoding_error := false
 					// DECODE
 					if compress && resp.Header.Get("Content-Encoding") == "gzip" {
 						bodyReader, err = gzip.NewReader(io.LimitReader(resp.Body, MaxHTTPBodyLength))
 						if err != nil {
+							_ = resp.Body.Close()
 							return nil, statusCode, response_tls, rtt, err
 						}
-						defer func(bodyReader io.ReadCloser) {
-							err = bodyReader.Close()
-							if err != nil {
-								deferr = true
-							}
-						}(bodyReader)
-					} else if compress || resp.Header.Get("Content-Encoding") == "gzip" {
-						deferr = true
+						defer bodyReader.Close()
+					} else if compress || len(resp.Header.Get("Content-Encoding")) > 0 {
+						encoding_error = true
 						compresserr := errors.New("decoding error")
 						if compress {
 							compresserr = errors.New("compress is set but response has incorrect encoding")
 						} else {
-							compresserr = errors.New("response with gzip compression without requesting compression")
+							compresserr = errors.New("response has compression without requesting it")
 						}
 						return nil, 0, nil, 0, compresserr
 					}
-					if deferr == false {
+					if encoding_error == false {
 						bin, err := io.ReadAll(io.LimitReader(bodyReader, MaxHTTPBodyLength))
 						errbc := resp.Body.Close()
 						if errbc != nil {
@@ -973,13 +983,6 @@ func (xTransport *XTransport) Fetch(
 						}
 						if err != nil {
 							return nil, statusCode, response_tls, rtt, err
-						}
-						if hasTLSConnected >= 0 {
-							if hasTLSConnected < 10 {
-								hasTLSConnected += 1
-							}
-						} else {
-							hasTLSConnected = 0
 						}
 						return bin, statusCode, response_tls, rtt, err
 					} else {
