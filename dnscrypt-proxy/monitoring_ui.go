@@ -285,6 +285,16 @@ func (ui *MonitoringUI) UpdateMetrics(pluginsState PluginsState, msg *dns.Msg) {
 		mc.cacheMisses++
 		dlog.Debugf("Cache miss, total misses: %d", mc.cacheMisses)
 	}
+	
+	// Update blocked queries count
+	// Only count truly blocked queries: REJECT (blocked by name/IP) and DROP (dropped)
+	// CLOAK is not counted as it redirects queries rather than blocking them
+	if pluginsState.returnCode == PluginsReturnCodeReject ||
+		pluginsState.returnCode == PluginsReturnCodeDrop {
+		mc.blockCount++
+		dlog.Debugf("Blocked query (return code: %s), total blocks: %d",
+			PluginsReturnCodeToString[pluginsState.returnCode], mc.blockCount)
+	}
 	mc.countersMutex.Unlock()
 
 	// Invalidate cache since counters changed
