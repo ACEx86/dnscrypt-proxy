@@ -272,6 +272,7 @@ func (xTransport *XTransport) rebuildTransport() {
 		}
 		tlsClientConfig.Certificates = []tls.Certificate{cert}
 	}
+	tlsClientConfig.InsecureSkipVerify = false
 	if xTransport.tlsDisableSessionTickets {
 		tlsClientConfig.SessionTicketsDisabled = xTransport.tlsDisableSessionTickets
 		tlsClientConfig.ClientSessionCache = nil
