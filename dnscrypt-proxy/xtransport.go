@@ -69,6 +69,7 @@ type XTransport struct {
 	h3Transport              *http3.Transport
 	keepAlive                time.Duration
 	timeout                  time.Duration
+	InsecureSkipVerify       bool
 	cachedIPs                CachedIPs
 	altSupport               AltSupport
 	internalResolvers        []string
@@ -104,6 +105,7 @@ func NewXTransport() *XTransport {
 		altSupport:               AltSupport{cache: make(map[string]uint16)},
 		keepAlive:                DefaultKeepAlive,
 		timeout:                  DefaultTimeout,
+		InsecureSkipVerify:       false,
 		bootstrapResolvers:       []string{DefaultBootstrapResolver},
 		mainProto:                "",
 		NoFallback:               true,
@@ -185,61 +187,24 @@ func (xTransport *XTransport) loadCachedIP(host string) (ip net.IP, expired bool
 // Rebuild the transport. This will maybe drop the connection protocol or cipher
 func (xTransport *XTransport) rebuildTransport() {
 	if rebuildingTransport {
-		dlog.Notice(" ( ! ) Transport: Rebuilding is been executed")
+		dlog.Notice(" ( ! ) Transport: Already executing")
 		return
 	}
 	rebuildingTransport = true
+	defer func() {
+		rebuildingTransport = false
+		dlog.Info(" ( + ) Transport: Rebuilding done")
+	}()
 	dlog.Info(" ( + ) Transport: Rebuilding")
 	if xTransport.transport != nil {
 		dlog.Info(" ( ! ) Transport: Closing idle connections")
 		xTransport.transport.CloseIdleConnections()
 	}
 	timeout := xTransport.timeout
-	transport := &http.Transport{
-		DisableKeepAlives:      true,
-		DisableCompression:     true,
-		MaxIdleConns:           1,
-		IdleConnTimeout:        xTransport.keepAlive,
-		ResponseHeaderTimeout:  timeout,
-		ExpectContinueTimeout:  timeout,
-		MaxResponseHeaderBytes: 4096,
-		DialContext: func(ctx context.Context, network, addrStr string) (net.Conn, error) {
-			host, port := ExtractHostAndPort(addrStr, stamps.DefaultPort)
-			ipOnly := host
-			// resolveAndUpdateCache() is always called in `Fetch()` before the `Dial()`
-			// method is used, so that a cached entry must be present at this point.
-			cachedIP, _, _ := xTransport.loadCachedIP(host)
-			if cachedIP != nil {
-				if ipv4 := cachedIP.To4(); ipv4 != nil {
-					ipOnly = ipv4.String()
-				} else {
-					ipOnly = "[" + cachedIP.String() + "]"
-				}
-			} else {
-				dlog.Infof("[%s] IP address was not cached in DialContext", host)
-			}
-			addrStr = ipOnly + ":" + strconv.Itoa(port)
-			if xTransport.proxyDialer == nil {
-				dialer := &net.Dialer{Timeout: timeout, KeepAlive: timeout, DualStack: true}
-				return dialer.DialContext(ctx, network, addrStr)
-			}
-			return (*xTransport.proxyDialer).Dial(network, addrStr)
-		},
-	}
-
-	if xTransport.httpProxyFunction != nil {
-		transport.Proxy = xTransport.httpProxyFunction
-	}
 
 	clientCreds := xTransport.tlsClientCreds
-
-	tlsClientConfig := tls.Config{}
 	certPool, certPoolErr := x509.SystemCertPool()
-
-	if xTransport.keyLogWriter != nil {
-		tlsClientConfig.KeyLogWriter = xTransport.keyLogWriter
-	}
-
+	xCert := tls.Certificate{}
 	if clientCreds.rootCA != "" {
 		if certPool == nil {
 			dlog.Fatalf("Additional CAs not supported on this platform: %v", certPoolErr)
@@ -257,7 +222,6 @@ func (xTransport *XTransport) rebuildTransport() {
  MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAwTzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2VhcmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4WhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygch77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6UA5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sWT8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyHB5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UCB5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUvKBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWnOlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTnjh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbwqHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CIrU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkqhkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZLubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KKNFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5ORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7UrTkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdCjNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVcoyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPAmRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57demyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
  -----END CERTIFICATE-----`)
 		certPool.AppendCertsFromPEM(letsEncryptX1Cert)
-		tlsClientConfig.RootCAs = certPool
 	}
 
 	if clientCreds.clientCert != "" {
@@ -270,15 +234,28 @@ func (xTransport *XTransport) rebuildTransport() {
 				err,
 			)
 		}
-		tlsClientConfig.Certificates = []tls.Certificate{cert}
+		xCert = cert
 	}
+
+	tlsClientConfig := tls.Config{}
+	tlsClientConfig.RootCAs = certPool
+	tlsClientConfig.Certificates = []tls.Certificate{xCert}
+	certPool = nil
+	certPoolErr = nil
+	xCert = tls.Certificate{}
 	tlsClientConfig.InsecureSkipVerify = false
+
+	if xTransport.keyLogWriter != nil {
+		tlsClientConfig.KeyLogWriter = xTransport.keyLogWriter
+	}
+
 	if xTransport.tlsDisableSessionTickets {
 		tlsClientConfig.SessionTicketsDisabled = xTransport.tlsDisableSessionTickets
 		tlsClientConfig.ClientSessionCache = nil
 	} else {
 		tlsClientConfig.ClientSessionCache = tls.NewLRUClientSessionCache(10)
 	}
+
 	if xTransport.CSHandleError == 3 {
 		xTransport.MaxVersion = tls.VersionTLS12
 		tlsClientConfig.MaxVersion = tls.VersionTLS12
@@ -323,12 +300,51 @@ func (xTransport *XTransport) rebuildTransport() {
 			tlsClientConfig.MaxVersion = tls.VersionTLS12
 		}
 	}
+
+	transport := &http.Transport{
+		DisableKeepAlives:      true,
+		DisableCompression:     true,
+		MaxIdleConns:           1,
+		IdleConnTimeout:        xTransport.keepAlive,
+		ResponseHeaderTimeout:  timeout,
+		ExpectContinueTimeout:  timeout,
+		MaxResponseHeaderBytes: 4096,
+		DialContext: func(ctx context.Context, network, addrStr string) (net.Conn, error) {
+			host, port := ExtractHostAndPort(addrStr, stamps.DefaultPort)
+			ipOnly := host
+			// resolveAndUpdateCache() is always called in `Fetch()` before the `Dial()`
+			// method is used, so that a cached entry must be present at this point.
+			cachedIP, _, _ := xTransport.loadCachedIP(host)
+			if cachedIP != nil {
+				if ipv4 := cachedIP.To4(); ipv4 != nil {
+					ipOnly = ipv4.String()
+				} else {
+					ipOnly = "[" + cachedIP.String() + "]"
+				}
+			} else {
+				dlog.Infof("[%s] IP address was not cached in DialContext", host)
+			}
+			addrStr = ipOnly + ":" + strconv.Itoa(port)
+			if xTransport.proxyDialer == nil {
+				dialer := &net.Dialer{Timeout: timeout, KeepAlive: timeout}
+				return dialer.DialContext(ctx, network, addrStr)
+			} else {
+				return (*xTransport.proxyDialer).Dial(network, addrStr)
+			}
+		},
+	}
+
+	if xTransport.httpProxyFunction != nil {
+		transport.Proxy = xTransport.httpProxyFunction
+	}
+
 	transport.TLSClientConfig = &tlsClientConfig
 	if http2Transport, err := http2.ConfigureTransports(transport); err != nil {
 		http2Transport.ReadIdleTimeout = timeout
 		http2Transport.AllowHTTP = false
 	}
 	xTransport.transport = transport
+
 	if xTransport.http3 {
 		dial := func(ctx context.Context, addrStr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
 			dlog.Infof("Dialing for H3: [%v]", addrStr)
@@ -379,8 +395,6 @@ func (xTransport *XTransport) rebuildTransport() {
 		}
 		xTransport.h3Transport = h3Transport
 	}
-	rebuildingTransport = false
-	dlog.Info(" ( + ) Transport: Rebuilding done")
 }
 
 // Resolve using the system resolver: net.LookupHost
@@ -748,7 +762,8 @@ func (xTransport *XTransport) Fetch(
 				client.CloseIdleConnections()
 				return nil, 0, nil, 0, errors.New("rebuilding transport")
 			}
-			if req.TLS.CipherSuite != tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 && req.TLS.CipherSuite != tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 {
+			tTLS := resp.TLS.CipherSuite
+			if req.TLS.CipherSuite != tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 && req.TLS.CipherSuite != tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 && tTLS != tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 && tTLS != tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 {
 				h3_dropped = true
 				client.Transport = xTransport.transport
 				start = time.Now()
