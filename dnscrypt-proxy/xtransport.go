@@ -669,19 +669,22 @@ func (xTransport *XTransport) Fetch(
 		h := sha512.Sum512(*body)
 		qs := url.Query()
 		qs.Add("body_hash", hex.EncodeToString(h[:32]))
-		url2 := *url
-		url2.RawQuery = qs.Encode()
-		url = &url2
+		url.RawQuery = qs.Encode()
+	} else if compress { // COMPRESSED GET REQUEST
+		header["Accept-Encoding"] = []string{"gzip"}
 	}
 
 	// Reject .onion if no proxy dialer
 	if xTransport.proxyDialer == nil && strings.HasSuffix(host, ".onion") {
 		return nil, 0, nil, 0, errors.New("onion service is not reachable without Tor")
 	}
+
+	// Check if it is Stamp
 	is_STAMP := false
 	if strings.Contains(url.String(), ".md") {
 		is_STAMP = true
 	}
+
 	if rebuildingTransport {
 		return nil, 0, nil, 0, errors.New("rebuilding transport")
 	}
@@ -693,13 +696,7 @@ func (xTransport *XTransport) Fetch(
 		)
 		return nil, 0, nil, 0, err
 	}
-	// COMPRESSED GET REQUEST
-	if compress && body == nil {
-		header["Accept-Encoding"] = []string{"gzip"}
-	}
-	if rebuildingTransport {
-		return nil, 0, nil, 0, errors.New("rebuilding transport")
-	}
+
 	req := &http.Request{
 		Method: method,
 		URL:    url,
@@ -747,13 +744,16 @@ func (xTransport *XTransport) Fetch(
 		// Retry with HTTP/2
 		if xTransport.RetryWith2 && xTransport.http3 == true {
 			if rebuildingTransport {
+				client.CloseIdleConnections()
 				return nil, 0, nil, 0, errors.New("rebuilding transport")
 			}
-			h3_dropped = true
-			client.Transport = xTransport.transport
-			start = time.Now()
-			resp, err = client.Do(req)
-			rtt = time.Since(start)
+			if req.TLS.CipherSuite != tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 && req.TLS.CipherSuite != tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 {
+				h3_dropped = true
+				client.Transport = xTransport.transport
+				start = time.Now()
+				resp, err = client.Do(req)
+				rtt = time.Since(start)
+			}
 		}
 	}
 
@@ -807,12 +807,12 @@ func (xTransport *XTransport) Fetch(
 						xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
 						xTransport.keepCipherSuite = true
 					case 1: // TLS 1.2 even after Cipher Suites failed upgrade
-						if hasTLSConnected < 2 {
+						if hasTLSConnected < 3 {
 							dlog.Info("TLS 1.2 configured cipher suites failed. Upgrading to TLS 1.3")
 							xTransport.keepCipherSuite = false
 							xTransport.CSHandleError = 0
 						} else {
-							// TODO: Add setting to enable or not upgrade if TLS failed one after another after success
+							// TODO: Add setting to enable or not upgrade if TLS failed one after another after successful connection with this CipherSuite
 						}
 					case 2:
 						dlog.Info("Dynamically adjusted server used Cipher Suite have failed. Adding more Cipher Suites for TLS 1.2")
@@ -956,22 +956,27 @@ func (xTransport *XTransport) Fetch(
 			if ignore_response == false {
 				if resp.Body != nil {
 					var bodyReader io.ReadCloser = resp.Body
-					encoding_error := false
+					bodyReader, err = gzip.NewReader(io.LimitReader(resp.Body, MaxHTTPBodyLength))
+					if err != nil {
+						_ = resp.Body.Close()
+						return nil, statusCode, response_tls, rtt, err
+					}
+					defer bodyReader.Close()
+					encoding_error := true
 					// DECODE
 					if compress && resp.Header.Get("Content-Encoding") == "gzip" {
-						bodyReader, err = gzip.NewReader(io.LimitReader(resp.Body, MaxHTTPBodyLength))
-						if err != nil {
-							_ = resp.Body.Close()
-							return nil, statusCode, response_tls, rtt, err
-						}
-						defer bodyReader.Close()
-					} else if compress || len(resp.Header.Get("Content-Encoding")) > 0 {
+						encoding_error = false
+					} else {
+						resp.Body.Close()
 						encoding_error = true
 						compresserr := errors.New("decoding error")
-						if compress {
-							compresserr = errors.New("compress is set but response has incorrect encoding")
-						} else {
+						resp_enc_header_length := len(resp.Header.Get("Content-Encoding"))
+						if !compress && resp_enc_header_length > 0 {
 							compresserr = errors.New("response has compression without requesting it")
+						} else if compress && resp_enc_header_length > 0 {
+							compresserr = errors.New("compress is set but response has incorrect encoding")
+						} else if compress {
+							compresserr = errors.New("compress is set but response has no encoding")
 						}
 						return nil, 0, nil, 0, compresserr
 					}
@@ -979,6 +984,7 @@ func (xTransport *XTransport) Fetch(
 						bin, err := io.ReadAll(io.LimitReader(bodyReader, MaxHTTPBodyLength))
 						errbc := resp.Body.Close()
 						if errbc != nil {
+							bin = nil
 							return nil, 0, nil, 0, errbc
 						}
 						if err != nil {
