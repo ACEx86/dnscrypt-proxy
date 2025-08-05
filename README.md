@@ -42,7 +42,7 @@ How to use these files, as well as how to verify their signatures, are documente
 ## Update & Build
 
 cd dnscrypt-proxy/<br>
-got get -u<br>
+go get -u<br>
 go mod tidy<br>
 go mod vendor<br>
 go build -ldflags="-s -w" -mod vendor
