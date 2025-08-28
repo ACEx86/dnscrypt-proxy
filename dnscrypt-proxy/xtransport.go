@@ -187,17 +187,18 @@ func (xTransport *XTransport) loadCachedIP(host string) (ip net.IP, expired bool
 // Rebuild the transport. This will maybe drop the connection protocol or cipher
 func (xTransport *XTransport) rebuildTransport() {
 	if rebuildingTransport {
-		dlog.Notice(" ( ! ) Transport: Already executing")
+		dlog.Notice(" [ ! ] Transport: Rebuild already in progress.")
 		return
 	}
 	rebuildingTransport = true
 	defer func() {
 		rebuildingTransport = false
-		dlog.Info(" ( + ) Transport: Rebuilding done")
+		xTransport.transport.CloseIdleConnections()
+		dlog.Info(" [ + ] Transport: Rebuilding complete.")
 	}()
-	dlog.Info(" ( + ) Transport: Rebuilding")
+	dlog.Info(" [ + ] Transport: Started rebuilding.")
 	if xTransport.transport != nil {
-		dlog.Info(" ( ! ) Transport: Closing idle connections")
+		dlog.Info(" [ ! ] Transport: Closing idle connections.")
 		xTransport.transport.CloseIdleConnections()
 	}
 	timeout := xTransport.timeout
@@ -210,10 +211,14 @@ func (xTransport *XTransport) rebuildTransport() {
 			dlog.Fatalf("Additional CAs not supported on this platform: %v", certPoolErr)
 		}
 		additionalCaCert, err := os.ReadFile(clientCreds.rootCA)
-		if err != nil || additionalCaCert == nil {
+		if err != nil {
 			dlog.Fatal(err)
 		}
-		certPool.AppendCertsFromPEM(additionalCaCert)
+		if additionalCaCert == nil {
+			dlog.Fatal("Additional CA certificate not supported on this platform.")
+		} else {
+			certPool.AppendCertsFromPEM(additionalCaCert)
+		}
 	}
 
 	if certPool != nil {
