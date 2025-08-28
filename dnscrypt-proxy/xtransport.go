@@ -217,7 +217,9 @@ func (xTransport *XTransport) rebuildTransport() {
 		if additionalCaCert == nil {
 			dlog.Fatal("Additional CA certificate not supported on this platform.")
 		} else {
-			certPool.AppendCertsFromPEM(additionalCaCert)
+			if err == nil {
+				certPool.AppendCertsFromPEM(additionalCaCert)
+			}
 		}
 	}
 
