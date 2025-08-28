@@ -1,0 +1,7 @@
+TODO:
+
+Add get and try cipher suites in configuration order for TLS 1.2. Can do this by trying them 1 by 1 in order and then continue with the normal execution. 
+
+Fix DoH drop
+
+Improve more the time-out and outbound or inbound connection firewall blocks
