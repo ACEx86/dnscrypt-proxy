@@ -291,13 +291,14 @@ func (xTransport *XTransport) rebuildTransport() {
 				}
 			}
 			if is_tls13 != SuitesCount {
-				dlog.Info(" ( ! ) Explicit cipher suite configured downgrading to TLS 1.2")
+				dlog.Info(" [ ! ] Explicit cipher suite configured downgrading to TLS 1.2")
 				xTransport.MaxVersion = tls.VersionTLS12
 				tlsClientConfig.CipherSuites = xTransport.tlsCipherSuite
 				tlsClientConfig.MaxVersion = tls.VersionTLS12
 			} else {
+				dlog.Notice(" [ ! ] Configured cipher suites is unsupported with TLS 1.2")
 				xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
-				dlog.Noticef(" ( ! ) Configured cipher suites is unsupported with TLS 1.2. Adding default secure cipher suites:  %v", xTransport.tlsCipherSuite)
+				dlog.Noticef(" [ + ] Added default secure cipher suites: %v", xTransport.tlsCipherSuite)
 				xTransport.CSHandleError = 2
 				xTransport.MaxVersion = tls.VersionTLS12
 				tlsClientConfig.CipherSuites = xTransport.tlsCipherSuite
@@ -325,9 +326,10 @@ func (xTransport *XTransport) rebuildTransport() {
 			// method is used, so that a cached entry must be present at this point.
 			cachedIP, _, _ := xTransport.loadCachedIP(host)
 			if cachedIP != nil {
-				if ipv4 := cachedIP.To4(); ipv4 != nil {
+				ipv4 := cachedIP.To4()
+				if ipv4 != nil {
 					ipOnly = ipv4.String()
-				} else {
+				} else if xTransport.useIPv6 {
 					ipOnly = "[" + cachedIP.String() + "]"
 				}
 			} else {
@@ -370,11 +372,11 @@ func (xTransport *XTransport) rebuildTransport() {
 				}
 			} else {
 				dlog.Infof("[%s] IP address was not cached in H3 context", host)
-				if xTransport.useIPv6 {
-					network = "udp6"
-				}
-				if xTransport.useIPv4 && !preferIPv6 {
+				if xTransport.useIPv4 {
 					network = "udp4"
+				}
+				if xTransport.useIPv6 && (preferIPv6 || !xTransport.useIPv4) {
+					network = "udp6"
 				}
 			}
 			addrStr = ipOnly + ":" + strconv.Itoa(port)
