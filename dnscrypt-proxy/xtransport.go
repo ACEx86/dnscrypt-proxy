@@ -31,13 +31,11 @@ import (
 )
 
 const (
-	DefaultUserAgent         = "dnscrypt-proxy"
-	DefaultBootstrapResolver = "9.9.9.9:53"
-	DefaultKeepAlive         = 5 * time.Second
-	DefaultTimeout           = 30 * time.Second
-	SystemResolverIPTTL      = 24 * time.Hour
-	MinResolverIPTTL         = 12 * time.Hour
-	ExpiredCachedIPGraceTTL  = 15 * time.Minute
+	DefaultKeepAlive        = 5 * time.Second
+	DefaultTimeout          = 30 * time.Second
+	SystemResolverIPTTL     = 24 * time.Hour
+	MinResolverIPTTL        = 12 * time.Hour
+	ExpiredCachedIPGraceTTL = 15 * time.Minute
 )
 
 // Some variables

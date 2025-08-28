@@ -18,8 +18,10 @@ import (
 )
 
 const (
-	MaxTimeout             = 3600
-	DefaultNetprobeAddress = "1.1.1.3:53"
+	MaxTimeout               = 3600
+	DefaultNetprobeAddress   = "1.1.1.3:53"
+	DefaultUserAgent         = "dnscrypt-proxy"
+	DefaultBootstrapResolver = "9.9.9.9:53"
 )
 
 var Bypass_NetProbe = 1
@@ -121,6 +123,7 @@ func newConfig() Config {
 		UserAgent:       DefaultUserAgent,
 		NoActiveCon:     true,
 		RetryWith2:      true,
+		ForceTCP:        false,
 		LogLevel:        int(dlog.LogLevel()),
 		LogFileLatest:   true,
 		ListenAddresses: []string{"127.0.0.1:53"},
@@ -133,14 +136,20 @@ func newConfig() Config {
 			EnableQueryLog: false,
 			PrivacyLevel:   2,
 		},
-		Timeout:                  5000,
-		KeepAlive:                5,
-		CertRefreshConcurrency:   10,
-		CertRefreshDelay:         240,
+		UserName:                 "",
 		HTTP3:                    false,
 		HTTP3Probe:               false,
+		Timeout:                  3000,
+		KeepAlive:                5,
+		Proxy:                    "",
+		CertRefreshConcurrency:   10,
+		CertRefreshDelay:         240,
 		CertIgnoreTimestamp:      false,
 		EphemeralKeys:            false,
+		BlockIPv6:                true,
+		BlockUnqualified:         true,
+		BlockUndelegated:         true,
+		EnableHotReload:          false,
 		Cache:                    true,
 		CacheSize:                512,
 		CacheNegTTL:              0,

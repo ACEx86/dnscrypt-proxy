@@ -104,9 +104,8 @@ func configureXTransport(proxy *Proxy, config *Config) error {
 		httpProxyURL, err := url.Parse(config.HTTPProxyURL)
 		if err != nil {
 			return fmt.Errorf("Unable to parse the HTTP proxy URL [%v]", config.HTTPProxyURL)
-		} else {
-			proxy.xTransport.httpProxyFunction = http.ProxyURL(httpProxyURL)
 		}
+		proxy.xTransport.httpProxyFunction = http.ProxyURL(httpProxyURL)
 	}
 
 	// Configure proxy dialer if specified
@@ -122,10 +121,11 @@ func configureXTransport(proxy *Proxy, config *Config) error {
 		proxy.xTransport.proxyDialer = &proxyDialer
 		proxy.mainProto = "tcp"
 	}
+
+	// Configure Force TLS 1.2 version support
 	if config.ForceTLS12 == true {
 		proxy.xTransport.keepCipherSuite = true
 	}
-	proxy.xTransport.rebuildTransport()
 
 	// Configure TLS key log if specified
 	if len(config.TLSKeyLogFile) > 0 {
@@ -135,8 +135,8 @@ func configureXTransport(proxy *Proxy, config *Config) error {
 		}
 		dlog.Warnf("TLS key log file [%s] enabled", config.TLSKeyLogFile)
 		proxy.xTransport.keyLogWriter = f
-		proxy.xTransport.rebuildTransport()
 	}
+	proxy.xTransport.rebuildTransport()
 
 	return nil
 }
