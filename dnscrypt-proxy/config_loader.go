@@ -104,8 +104,9 @@ func configureXTransport(proxy *Proxy, config *Config) error {
 		httpProxyURL, err := url.Parse(config.HTTPProxyURL)
 		if err != nil {
 			return fmt.Errorf("Unable to parse the HTTP proxy URL [%v]", config.HTTPProxyURL)
+		} else {
+			proxy.xTransport.httpProxyFunction = http.ProxyURL(httpProxyURL)
 		}
-		proxy.xTransport.httpProxyFunction = http.ProxyURL(httpProxyURL)
 	}
 
 	// Configure proxy dialer if specified
