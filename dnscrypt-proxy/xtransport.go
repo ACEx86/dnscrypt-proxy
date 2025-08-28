@@ -274,23 +274,32 @@ func (xTransport *XTransport) rebuildTransport() {
 	}
 	if xTransport.keepCipherSuite == true {
 		if xTransport.tlsCipherSuite != nil && len(xTransport.tlsCipherSuite) > 0 {
-			var tls13 = "198 199 4865 4866 4867 4868 4869 49332 49333"
-			var tls_secure = "4865 4866 4868 49195 49196 49199 49200 52392 52393"
+			tls13 := map[int]struct{}{
+				198: {}, 199: {}, 4865: {}, 4866: {}, 4867: {},
+				4868: {}, 4869: {}, 49332: {}, 49333: {},
+			}
+			tlsSecure := map[int]struct{}{
+				4865: {}, 4866: {}, 4868: {}, 49195: {}, 49196: {},
+				49199: {}, 49200: {}, 52392: {}, 52393: {},
+			}
 			var is_tls13 = 0
-			var SuitesCount = 0
-			for _, expectedSuiteID := range xTransport.tlsCipherSuite {
-				check := strconv.Itoa(int(expectedSuiteID))
-				if !strings.Contains(tls_secure, check) {
-					xTransport.tlsCipherSuite[SuitesCount] = xTransport.tlsCipherSuite[len(xTransport.tlsCipherSuite)-1]
+			var only_tls13_presence = 0
+			for Ciphers := 0; Ciphers < len(xTransport.tlsCipherSuite); {
+				CSuite := int(xTransport.tlsCipherSuite[Ciphers])
+				// remove non-secure suites
+				if _, ok := tlsSecure[CSuite]; !ok {
+					xTransport.tlsCipherSuite[Ciphers] = xTransport.tlsCipherSuite[len(xTransport.tlsCipherSuite)-1]
 					xTransport.tlsCipherSuite = xTransport.tlsCipherSuite[:len(xTransport.tlsCipherSuite)-1]
 					continue
 				}
-				SuitesCount += 1
-				if strings.Contains(tls13, check) {
+				only_tls13_presence += 1
+				// mark TLS 1.3 presence
+				if _, ok := tls13[CSuite]; ok {
 					is_tls13 += 1
 				}
+				Ciphers++
 			}
-			if is_tls13 != SuitesCount {
+			if is_tls13 != only_tls13_presence {
 				dlog.Info(" [ ! ] Explicit cipher suite configured downgrading to TLS 1.2")
 				xTransport.MaxVersion = tls.VersionTLS12
 				tlsClientConfig.CipherSuites = xTransport.tlsCipherSuite
