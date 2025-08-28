@@ -283,23 +283,22 @@ func (xTransport *XTransport) rebuildTransport() {
 				49199: {}, 49200: {}, 52392: {}, 52393: {},
 			}
 			var is_tls13 = 0
-			var only_tls13_presence = 0
-			for Ciphers := 0; Ciphers < len(xTransport.tlsCipherSuite); {
+			var Ciphers = 0
+			for Ciphers = 0; Ciphers < len(xTransport.tlsCipherSuite); {
 				CSuite := int(xTransport.tlsCipherSuite[Ciphers])
-				// remove non-secure suites
+				// remove non-secure cipher suites
 				if _, ok := tlsSecure[CSuite]; !ok {
 					xTransport.tlsCipherSuite[Ciphers] = xTransport.tlsCipherSuite[len(xTransport.tlsCipherSuite)-1]
 					xTransport.tlsCipherSuite = xTransport.tlsCipherSuite[:len(xTransport.tlsCipherSuite)-1]
 					continue
 				}
-				only_tls13_presence += 1
 				// mark TLS 1.3 presence
 				if _, ok := tls13[CSuite]; ok {
 					is_tls13 += 1
 				}
-				Ciphers++
+				Ciphers += 1
 			}
-			if is_tls13 != only_tls13_presence {
+			if is_tls13 != Ciphers {
 				dlog.Info(" [ ! ] Explicit cipher suite configured downgrading to TLS 1.2")
 				xTransport.MaxVersion = tls.VersionTLS12
 				tlsClientConfig.CipherSuites = xTransport.tlsCipherSuite
