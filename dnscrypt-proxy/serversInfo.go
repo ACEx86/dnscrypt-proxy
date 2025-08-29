@@ -747,7 +747,6 @@ func fetchDoHServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp, isN
 	dlog.Infof("DoH server info", name)
 	for sum := 0; sum < 5; sum++ {
 		start := time.Now()
-		dlog.Infof("Tries: %d", sum)
 		_, _, _, _, errq = proxy.xTransport.DoHQuery(useGet, curl, body, proxy.timeout)
 		rtt := time.Since(start)
 		if rtt > proxy.timeout {

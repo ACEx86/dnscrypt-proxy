@@ -700,17 +700,14 @@ func (xTransport *XTransport) Fetch(
 	if body != nil {
 		h := sha512.Sum512(*body)
 		qs := url.Query()
-		dlog.Infof("Querying [%s] from [%s]", qs, host)
-		qs.Add("body_hash", hex.EncodeToString(h[:32]))
-		/*if qs.Has("body_hash") {
+		if qs.Has("body_hash") {
 			qs.Set("body_hash", hex.EncodeToString(h[:32]))
 		} else {
 			qs.Add("body_hash", hex.EncodeToString(h[:32]))
-		}*/
+		}
 		url2 := *url
 		url2.RawQuery = qs.Encode()
 		url = &url2
-		//url.RawQuery = qs.Encode()
 	} else if compress { // COMPRESSED GET REQUEST
 		header["Accept-Encoding"] = []string{"gzip"}
 	}
@@ -998,20 +995,16 @@ func (xTransport *XTransport) Fetch(
 			if ignore_response == false {
 				if resp.Body != nil {
 					var bodyReader io.ReadCloser = resp.Body
-					bodyReader, err = gzip.NewReader(io.LimitReader(resp.Body, MaxHTTPBodyLength))
-					if err != nil {
-						_ = resp.Body.Close()
-						return nil, statusCode, response_tls, rtt, err
-					}
-					defer bodyReader.Close()
-					encoding_error := true
 					// DECODE
 					if compress && resp.Header.Get("Content-Encoding") == "gzip" {
-						encoding_error = false
+						bodyReader, err = gzip.NewReader(io.LimitReader(resp.Body, MaxHTTPBodyLength))
+						if err != nil {
+							_ = resp.Body.Close()
+							return nil, statusCode, response_tls, rtt, err
+						}
+						defer bodyReader.Close()
 					} else {
-						resp.Body.Close()
-						encoding_error = true
-						compresserr := errors.New("decoding error")
+						compresserr := error(nil)
 						resp_enc_header_length := len(resp.Header.Get("Content-Encoding"))
 						if !compress && resp_enc_header_length > 0 {
 							compresserr = errors.New("response has compression without requesting it")
@@ -1020,22 +1013,20 @@ func (xTransport *XTransport) Fetch(
 						} else if compress {
 							compresserr = errors.New("compress is set but response has no encoding")
 						}
-						return nil, 0, nil, 0, compresserr
-					}
-					if encoding_error == false {
-						bin, err := io.ReadAll(io.LimitReader(bodyReader, MaxHTTPBodyLength))
-						errbc := resp.Body.Close()
-						if errbc != nil {
-							bin = nil
-							return nil, 0, nil, 0, errbc
+						if compresserr != nil {
+							return nil, 0, nil, 0, compresserr
 						}
-						if err != nil {
-							return nil, statusCode, response_tls, rtt, err
-						}
-						return bin, statusCode, response_tls, rtt, err
-					} else {
-						return nil, statusCode, nil, rtt, errors.New("decoding error")
 					}
+					bin, err := io.ReadAll(io.LimitReader(bodyReader, MaxHTTPBodyLength))
+					errbc := resp.Body.Close()
+					if errbc != nil {
+						bin = nil
+						return nil, 0, nil, 0, errbc
+					}
+					if err != nil {
+						return nil, statusCode, response_tls, rtt, err
+					}
+					return bin, statusCode, response_tls, rtt, err
 				}
 			} else {
 				err := errors.New("response ignored")
