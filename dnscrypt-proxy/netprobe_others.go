@@ -61,7 +61,7 @@ func NetProbe(proxy *Proxy, address string, timeout int) error {
 		pc.Close()
 		if Bypass_NetProbe != 3 {
 			Bypass_NetProbe = 3
-			dlog.Notice(" ( + ) Network connectivity detected")
+			dlog.Notice(" [ + ] Network connectivity detected")
 		}
 		return nil
 	}

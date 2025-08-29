@@ -225,6 +225,7 @@ func handleDNSExchange(
 	if serverInfo.Proto == stamps.StampProtoTypeDNSCrypt {
 		response, err = processDNSCryptQuery(proxy, serverInfo, pluginsState, query, serverProto)
 	} else if serverInfo.Proto == stamps.StampProtoTypeDoH {
+		dlog.Info("Calling DoH query")
 		response, err = processDoHQuery(proxy, serverInfo, pluginsState, query)
 	} else if serverInfo.Proto == stamps.StampProtoTypeODoHTarget {
 		response, err = processODoHQuery(proxy, serverInfo, pluginsState, query)

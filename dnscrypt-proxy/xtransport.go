@@ -662,7 +662,7 @@ func (xTransport *XTransport) Fetch(
 	host, port := ExtractHostAndPort(url.Host, 443)
 	hasAltSupport := false
 	is_http2 := true
-	// dlog.Infof(" ( + ) Fetching %s %s %s", method, url.Scheme, url.Host)
+
 	if xTransport.http3 == true && xTransport.h3Transport != nil {
 		is_http2 = false
 		if xTransport.http3Probe {
@@ -700,8 +700,17 @@ func (xTransport *XTransport) Fetch(
 	if body != nil {
 		h := sha512.Sum512(*body)
 		qs := url.Query()
+		dlog.Infof("Querying [%s] from [%s]", qs, host)
 		qs.Add("body_hash", hex.EncodeToString(h[:32]))
-		url.RawQuery = qs.Encode()
+		/*if qs.Has("body_hash") {
+			qs.Set("body_hash", hex.EncodeToString(h[:32]))
+		} else {
+			qs.Add("body_hash", hex.EncodeToString(h[:32]))
+		}*/
+		url2 := *url
+		url2.RawQuery = qs.Encode()
+		url = &url2
+		//url.RawQuery = qs.Encode()
 	} else if compress { // COMPRESSED GET REQUEST
 		header["Accept-Encoding"] = []string{"gzip"}
 	}
@@ -1069,6 +1078,7 @@ func (xTransport *XTransport) Post(
 	body *[]byte,
 	timeout time.Duration,
 ) ([]byte, int, *tls.ConnectionState, time.Duration, error) {
+	dlog.Infof("Doing Post Request with URL: %v", url)
 	return xTransport.Fetch("POST", url, accept, contentType, body, timeout, false)
 }
 

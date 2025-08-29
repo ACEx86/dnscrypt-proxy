@@ -493,7 +493,7 @@ func execNetProbe(proxy *Proxy, flags *ConfigFlags, config *Config) {
 			}
 		}
 	} else {
-		dlog.Notice(" ( - ) Netprobe is disabled.")
+		dlog.Notice(" [ - ] Netprobe is disabled.")
 	}
 }
 

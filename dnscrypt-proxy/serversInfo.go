@@ -198,7 +198,7 @@ func (serversInfo *ServersInfo) refreshServer(proxy *Proxy, name string, stamp s
 	//
 	if Bypass_NetProbe != 3 {
 		Bypass_NetProbe = 3
-		dlog.Infof(" ( + ) Network Connectivity Detected")
+		dlog.Infof(" [ + ] Network Connectivity Detected")
 	}
 	if name != newServer.Name {
 		dlog.Fatalf("[%s] != [%s]", name, newServer.Name)
@@ -742,24 +742,22 @@ func fetchDoHServerInfo(proxy *Proxy, name string, stamp stamps.ServerStamp, isN
 	}
 	body := dohTestPacket(0xcafe)
 	useGet := false
-	tmp_time := time.Duration(time.Now().Second()) * time.Second
-	dlog.Infof("Time %v", tmp_time)
 	var errq error = nil
-	//_, _, _, tmp_time, errq := proxy.xTransport.DoHQuery(useGet, curl, body, proxy.timeout)
 	// Retry Post.
 	dlog.Infof("DoH server info", name)
 	for sum := 0; sum < 5; sum++ {
-		_, _, _, tmp_time, errq = proxy.xTransport.DoHQuery(useGet, curl, body, proxy.timeout)
-		if tmp_time <= 0 {
-			dlog.Info("DoH Server Info Query timeout...")
-		} else {
+		start := time.Now()
+		dlog.Infof("Tries: %d", sum)
+		_, _, _, _, errq = proxy.xTransport.DoHQuery(useGet, curl, body, proxy.timeout)
+		rtt := time.Since(start)
+		if rtt > proxy.timeout {
+			dlog.Info(" [ ! ] DoH server info timeout...")
+		}
+		if errq == nil {
 			break
 		}
 	}
 	if errq != nil {
-		if tmp_time > 0 {
-
-		}
 		useGet = true
 		if _, _, _, _, err := proxy.xTransport.DoHQuery(useGet, curl, body, proxy.timeout); err != nil {
 			return ServerInfo{}, err
