@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"time"
 
 	"github.com/jedisct1/dlog"

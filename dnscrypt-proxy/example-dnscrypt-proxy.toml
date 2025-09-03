@@ -989,7 +989,8 @@ algorithm = "none"
 ## Example for ndx: key = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 ## IMPORTANT: Keep this key secret and store it securely
 
-# key = ""
+key = ""
+
 
  ###############################################################################
 #                            Monitoring UI                                      #
