@@ -182,6 +182,11 @@ func (xTransport *XTransport) loadCachedIP(host string) (ip net.IP, expired bool
 	return
 }
 
+// The default TLS 1.2 secure cipher suites
+func DefaultTLSCipherSuites() []uint16 {
+	return []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
+}
+
 // Rebuild the transport. This will maybe drop the connection protocol or cipher
 func (xTransport *XTransport) rebuildTransport() {
 	if rebuildingTransport {
@@ -303,7 +308,7 @@ func (xTransport *XTransport) rebuildTransport() {
 				tlsClientConfig.MaxVersion = tls.VersionTLS12
 			} else {
 				dlog.Notice(" [ ! ] Configured cipher suites is unsupported with TLS 1.2")
-				xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
+				xTransport.tlsCipherSuite = DefaultTLSCipherSuites()
 				dlog.Noticef(" [ + ] Added default secure cipher suites: %v", xTransport.tlsCipherSuite)
 				xTransport.CSHandleError = 2
 				xTransport.MaxVersion = tls.VersionTLS12
@@ -824,6 +829,9 @@ func (xTransport *XTransport) Fetch(
 		dlog.Infof(" ( ! ) HTTP client error: [%v] - closing idle connections", err)
 		xTransport.transport.CloseIdleConnections()
 		getErrDetails := err.Error()
+		if rtt > timeout {
+			dlog.Info("Connection timeout exceeded")
+		}
 		if xTransport.MaxVersion == tls.VersionTLS13 { // Fall to TLS1.2 with TLS1.3 error
 			if strings.Contains(getErrDetails, "handshake failure") {
 				if xTransport.CSHandleError == 0 && rtt < timeout {
@@ -843,20 +851,20 @@ func (xTransport *XTransport) Fetch(
 					case 0:
 						dlog.Warnf("TLS 1.2 configured cipher suite failed (You can try changing or deleting the tls_cipher_suite value in the configuration file). Adding more Cipher Suites.")
 						xTransport.CSHandleError = 1
-						xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
+						xTransport.tlsCipherSuite = DefaultTLSCipherSuites()
 						xTransport.keepCipherSuite = true
 					case 1: // TLS 1.2 even after Cipher Suites failed upgrade
 						if hasTLSConnected < 3 {
 							dlog.Info("TLS 1.2 configured cipher suites failed. Upgrading to TLS 1.3")
-							xTransport.keepCipherSuite = false
 							xTransport.CSHandleError = 0
+							xTransport.keepCipherSuite = false
 						} else {
 							// TODO: Add setting to enable or not upgrade if TLS failed one after another after successful connection with this CipherSuite
 						}
 					case 2:
 						dlog.Info("Dynamically adjusted server used Cipher Suite have failed. Adding more Cipher Suites for TLS 1.2")
 						xTransport.CSHandleError = 1
-						xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
+						xTransport.tlsCipherSuite = DefaultTLSCipherSuites()
 						xTransport.keepCipherSuite = true
 						hasTLSConnected = 0
 					case 3: // No Cipher Suite at start up add server Cipher Suite
@@ -880,7 +888,7 @@ func (xTransport *XTransport) Fetch(
 						}
 					case 4:
 						dlog.Warnf("TLS handshake failure with cipher suite: %v - Try changing or deleting the tls_cipher_suite value in the configuration file", xTransport.tlsCipherSuite)
-						xTransport.tlsCipherSuite = []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
+						xTransport.tlsCipherSuite = DefaultTLSCipherSuites()
 						xTransport.keepCipherSuite = true
 					default: // TLS 1.2 failed and TLS 1.3 failed loop
 						dlog.Warnf("TLS handshake failure with cipher suite: %v - Try changing or deleting the tls_cipher_suite value in the configuration file", xTransport.tlsCipherSuite)
@@ -890,9 +898,6 @@ func (xTransport *XTransport) Fetch(
 			}
 		} else {
 			dlog.Warn("unexpected TLS Version")
-		}
-		if rtt > timeout {
-			dlog.Info("timeout exceeded")
 		}
 		return nil, 0, nil, 0, err
 	}
