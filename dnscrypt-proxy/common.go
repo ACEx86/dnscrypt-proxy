@@ -167,7 +167,6 @@ func ExtractHostAndPort(str string, defaultPort int) (host string, port int) {
 // ReadTextFile reads a file and returns its contents as a string.
 // It automatically removes UTF-8 BOM if present.
 func ReadTextFile(filename string) (string, error) {
-	host, port = host[:idx], portX
 	bin, err := os.ReadFile(filename)
 	if err != nil {
 		return "", err
