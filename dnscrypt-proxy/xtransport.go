@@ -161,11 +161,9 @@ func (xTransport *XTransport) loadCachedIP(host string) (ip net.IP, expired bool
 	xTransport.cachedIPs.RLock()
 	item, ok := xTransport.cachedIPs.cache[host]
 	xTransport.cachedIPs.RUnlock()
-	if !ok {
-		return
-	}
-	if item.ip == nil || len(item.ip) <= 0 {
-		return
+	if !ok || item.ip == nil || len(item.ip) <= 0 {
+		dlog.Infof("[%s] IP address not found in the cache", host)
+		return nil, false, false
 	}
 	ip = item.ip
 	expiration := item.expiration
@@ -179,10 +177,10 @@ func (xTransport *XTransport) loadCachedIP(host string) (ip net.IP, expired bool
 			}
 		}
 	}
-	return
+	return ip, expired, updating
 }
 
-// The default TLS 1.2 secure cipher suites
+// DefaultTLSCipherSuites The default TLS 1.2 secure cipher suites
 func DefaultTLSCipherSuites() []uint16 {
 	return []uint16{tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256}
 }
@@ -427,7 +425,7 @@ func (xTransport *XTransport) resolveUsingSystem(host string) (ip net.IP, ttl ti
 		var foundIPs []string
 		foundIPs, err = net.LookupHost(host)
 		if err != nil {
-			return
+			return ip, ttl, err
 		}
 		ips := make([]net.IP, 0)
 		for _, ip := range foundIPs {
@@ -450,7 +448,7 @@ func (xTransport *XTransport) resolveUsingSystem(host string) (ip net.IP, ttl ti
 	} else {
 		dlog.Warnf(" ( ! ) Resolving using system resolver is disabled but the function is called. ( IP: %v, Host: %v )", ip, host)
 	}
-	return
+	return ip, ttl, err
 }
 
 func (xTransport *XTransport) resolveUsingResolver(
@@ -475,7 +473,7 @@ func (xTransport *XTransport) resolveUsingResolver(
 				answer := answers[rand.Intn(len(answers))]
 				ip = answer.(*dns.A).A
 				ttl = time.Duration(answer.Header().Ttl) * time.Second
-				return
+				return ip, ttl, err
 			}
 		}
 	}
@@ -496,11 +494,11 @@ func (xTransport *XTransport) resolveUsingResolver(
 				answer := answers[rand.Intn(len(answers))]
 				ip = answer.(*dns.AAAA).AAAA
 				ttl = time.Duration(answer.Header().Ttl) * time.Second
-				return
+				return ip, ttl, err
 			}
 		}
 	}
-	return
+	return ip, ttl, err
 }
 
 func (xTransport *XTransport) resolveUsingResolvers(
@@ -526,7 +524,7 @@ func (xTransport *XTransport) resolveUsingResolvers(
 			dlog.Infof("Unable to resolve [%s] using resolver [%s] (%s): %v", host, resolver, proto, err)
 		}
 	}
-	return
+	return ip, ttl, err
 }
 
 func (xTransport *XTransport) resolveAndUpdateCache(host string, is_STAMP bool) error {
