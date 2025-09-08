@@ -781,7 +781,7 @@ func setStaticCacheHeaders(w http.ResponseWriter, maxAge int) {
 
 // handleTestQuery - Handles test query requests for debugging
 func (ui *MonitoringUI) handleTestQuery(w http.ResponseWriter, r *http.Request) {
-	dlog.Debugf("Adding test query")
+	dlog.Info("Adding test query")
 
 	// Test queries modify state - no cache
 	setDynamicCacheHeaders(w)

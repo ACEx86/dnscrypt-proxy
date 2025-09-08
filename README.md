@@ -42,7 +42,13 @@ How to use these files, as well as how to verify their signatures, are documente
 ## Update & Build
 
 cd dnscrypt-proxy/<br>
-go get -u<br>
-go mod tidy<br>
-go mod vendor<br>
+Update Packages: go get -u<br>
+Purge:           go mod tidy<br>
+Vendor Packages: go mod vendor<br>
+Build:
+OS Specific:
 go build -ldflags="-s -w" -mod vendor
+Windows x86_32:
+GOOS=windows GOARCH=386 go build -ldflags="-s -w" -mod vendor
+Windows x86_64:
+GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -mod vendor
