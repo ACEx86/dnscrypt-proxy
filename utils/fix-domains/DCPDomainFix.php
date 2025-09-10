@@ -2,55 +2,62 @@
 namespace DNSCrypt_Proxy\acex86_co_revision {
     /* DCPDomainFix is a rules fixer for dnscrypt-proxy.
      This php script can process fix sort megabytes of text data in seconds.
-     The main functions of the script is sort the data, remove some invalid characters, whitespaces, duplicates, etc.*/
+     The main functions of the script is to sort the data, remove some invalid characters, whitespaces, duplicates, etc.*/
     
     Final Class DCPDomainFix
     {
         Private String $UserProfile = '';
         Private String $FilePath = '\Desktop\dnsc';
         Private String $FileNamePath = '' {
-            get{
-                if(isset($this->FileNamePath) === True and !empty($this->FileNamePath)){
-                    return $this->FileNamePath;
-                } else {
-                    return '';
-                }
+            get
+            {
+                return $this->FileNamePath;
             }
-            set(String $Value){
-                if ((int)$Value === 1) {
+            set(String $Value)
+            {
+                if((int)$Value === 1)
+                {
                     $this->FileNamePath = '\blocked-names.txt';
-                } elseif ((int)$Value === 2) {
+                }elseif((int)$Value === 2)
+                {
                     $this->FileNamePath = '\blocked-ips.txt';
+                }elseif(empty($Value) === False)
+                {
+                    $this->FileNamePath = '\\'.$Value;
                 }
             }
         }
-        Private String $newline = ''{
-            get{
-                if(isset($this->newline) === True and !empty($this->newline)){
-                    return $this->newline;
-                } else {
-                    return '';
-                }
+        Private String $newline = '' {
+            get
+            {
+                return $this->newline;
             }
-            set(String $Value){
-                if ((int)$Value === 1) {
+            set(String $Value)
+            {
+                if((int)$Value === 1)
+                {
                     $this->newline = "\n";
-                } elseif ((int)$Value === 2) {
+                }elseif((int)$Value === 2)
+                {
                     $this->newline = "\r";
-                } elseif ((int)$Value === 3) {
+                }elseif((int)$Value === 3)
+                {
                     $this->newline = "\r\n";
-                } elseif ((int)$Value === 4) {/* Use current system */
+                }elseif((int)$Value === 4)
+                {/* Use current system */
                     $this->newline = PHP_EOL;
                 }
             }
         }
 
-        Private Function ProcessFile(string $file_path): void
+        Private Function ProcessFile(String $file_path): Void
         {
-            if (!empty($file_path) and file_exists($file_path) === True and is_readable($file_path) === True) {
+            if(empty($file_path) === False and file_exists($file_path) === True and is_readable($file_path) === True)
+            {
                 $Data = file_get_contents($file_path) ?: $Data = '';
             }
-            if (isset($Data) === True and is_string($Data) === True and strlen($Data) > 0) {
+            if(isset($Data) === True and is_string($Data) === True and strlen($Data) > 0)
+            {
                 echo 'Processing data for file: ' . $file_path . PHP_EOL;
                 // Check Data
                 $rand_num = rand(111111111, 999999999).rand(11111, 99999).rand(11111, 99999).rand(11111, 99999).rand(111111111, 999999999);
@@ -58,6 +65,18 @@ namespace DNSCrypt_Proxy\acex86_co_revision {
                 $Data = preg_replace("/[^a-zA-Z0-9><@.?=:$this->newline\/*#_ -]/", '', $Data) ?: $Data = '';
                 $DataLength = -1;
                 $DataLength = substr_count($Data, $this->newline) ?: $DataLength = -1;
+                // Find what line break we want to use and replace here.
+                $is_r = substr_count($Data, "\r") ?: $is_r = -1;
+                $is_n = substr_count($Data, "\n") ?: $is_n = -1;
+                $is_rn = False;
+                if($is_r > 0 and $is_n > 0)
+                {
+                    $is_rn = True;
+                }
+                if($DataLength === -1)
+                {
+                    $DataLength = substr_count($Data, $this->newline) ?: $DataLength = -1;
+                }
                 // Data Array
                 $Data = preg_split("/$this->newline/", $Data) ?: $Data = '';
                 // Here we save all the data that was processed. We need this to check (not add->fix duplicates) and sort the data correctly after a comment or..
@@ -140,7 +159,18 @@ namespace DNSCrypt_Proxy\acex86_co_revision {
         Final Function __construct(int $FilePath, int $NewLine)
         {
             $this->UserProfile = '';
-            $this->UserProfile = getenv('USERPROFILE', True) ?: $this->UserProfile = '';
+            $is_OS = PHP_OS_FAMILY;
+            if($is_OS === 'Windows')
+            {
+                $this->UserProfile = getenv('USERPROFILE', True) ?: $this->UserProfile = '';
+            }elseif($is_OS === 'Linux')
+            {
+                echo PHP_OS_FAMILY;
+            }
+            exit;
+            echo PHP_EOL.'Profile: '.$this->UserProfile;
+
+            exit;
             $this->DCPDomainFix($FilePath, $NewLine);
         }
 

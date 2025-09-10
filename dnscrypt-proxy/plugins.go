@@ -296,6 +296,7 @@ func (pluginsState *PluginsState) ApplyQueryPlugins(
 	defer pluginsGlobals.RUnlock()
 	for _, plugin := range *pluginsGlobals.queryPlugins {
 		if err := plugin.Eval(pluginsState, &msg); err != nil {
+			dlog.Infof("Drops query: %v", err)
 			pluginsState.action = PluginsActionDrop
 			return packet, err
 		}
@@ -318,7 +319,7 @@ func (pluginsState *PluginsState) ApplyQueryPlugins(
 	if err != nil {
 		return packet, err
 	}
-	
+
 	// Only get server info if we're continuing and need padding
 	if pluginsState.action == PluginsActionContinue && getServerInfo != nil {
 		_, needsEDNS0Padding := getServerInfo()
@@ -336,7 +337,6 @@ func (pluginsState *PluginsState) ApplyQueryPlugins(
 func (pluginsState *PluginsState) ApplyResponsePlugins(
 	pluginsGlobals *PluginsGlobals,
 	packet []byte,
-	ttl *uint32,
 ) ([]byte, error) {
 	msg := dns.Msg{Compress: true}
 	if err := msg.Unpack(packet); err != nil {
@@ -360,6 +360,7 @@ func (pluginsState *PluginsState) ApplyResponsePlugins(
 	defer pluginsGlobals.RUnlock()
 	for _, plugin := range *pluginsGlobals.responsePlugins {
 		if err := plugin.Eval(pluginsState, &msg); err != nil {
+			dlog.Infof("Drops response: %v", err)
 			pluginsState.action = PluginsActionDrop
 			return packet, err
 		}
@@ -376,9 +377,6 @@ func (pluginsState *PluginsState) ApplyResponsePlugins(
 		if pluginsState.action != PluginsActionContinue {
 			break
 		}
-	}
-	if ttl != nil {
-		setMaxTTL(&msg, *ttl)
 	}
 	packet2, err := msg.PackBuffer(packet)
 	if err != nil {

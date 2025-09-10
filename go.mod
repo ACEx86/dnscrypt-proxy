@@ -15,7 +15,7 @@ require (
 	github.com/jedisct1/go-clocksmith v0.0.0-20250224222044-e151f21a353a
 	github.com/jedisct1/go-dnsstamps v0.0.0-20240423203910-07a0735c7774
 	github.com/jedisct1/go-hpke-compact v0.0.0-20241212093903-5caa4621366f
-	github.com/jedisct1/go-ipcrypt v0.1.0
+	github.com/jedisct1/go-ipcrypt v0.1.1
 	github.com/jedisct1/go-minisign v0.0.0-20241212093149-d2f9f49435c7
 	github.com/jedisct1/go-sieve-cache v0.1.7
 	github.com/jedisct1/xsecretbox v0.0.0-20241212092125-3afc4917ac41
@@ -26,7 +26,7 @@ require (
 	github.com/powerman/check v1.8.0
 	github.com/quic-go/quic-go v0.54.0
 	golang.org/x/crypto v0.42.0
-	golang.org/x/net v0.43.0
+	golang.org/x/net v0.44.0
 	golang.org/x/sys v0.36.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
