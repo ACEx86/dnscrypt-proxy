@@ -663,6 +663,12 @@ func (xTransport *XTransport) Fetch(
 		Timeout:   timeout,
 	}
 	host, port := ExtractHostAndPort(url.Host, 443)
+
+	// Reject .onion if no proxy dialer
+	if xTransport.proxyDialer == nil && strings.HasSuffix(host, ".onion") {
+		return nil, 0, nil, 0, errors.New("onion service is not reachable without Tor")
+	}
+
 	hasAltSupport := false
 	is_http2 := true
 
@@ -713,11 +719,6 @@ func (xTransport *XTransport) Fetch(
 		url = &url2
 	} else if compress { // COMPRESSED GET REQUEST
 		header["Accept-Encoding"] = []string{"gzip"}
-	}
-
-	// Reject .onion if no proxy dialer
-	if xTransport.proxyDialer == nil && strings.HasSuffix(host, ".onion") {
-		return nil, 0, nil, 0, errors.New("onion service is not reachable without Tor")
 	}
 
 	// Check if it is Stamp
@@ -814,17 +815,23 @@ func (xTransport *XTransport) Fetch(
 		err = errors.New("webserver returned an error")
 	}
 
-	// TLS DROP
-	if xTransport.MaxVersion == tls.VersionTLS13 && Drop13 == true {
-		err = errors.New("handshake failure")
-	}
-	if xTransport.MaxVersion == tls.VersionTLS12 && Drop12 == true {
-		err = errors.New("handshake failure")
+	// Controlled TLS Drop
+	if (xTransport.MaxVersion == tls.VersionTLS13 && Drop13 == true) || (xTransport.MaxVersion == tls.VersionTLS12 && Drop12 == true) {
+		if resp.TLS != nil {
+			if resp.TLS.Version == tls.VersionTLS13 && Drop13 == true {
+				err = errors.New("handshake failure")
+			} else if resp.TLS.Version == tls.VersionTLS12 && Drop12 == true {
+				err = errors.New("handshake failure")
+			}
+		} else {
+			err = errors.New("handshake failure")
+		}
 	}
 
 	// Handle TLS Cipher Suite errors
 	if err != nil {
 		dlog.Infof(" ( ! ) HTTP client error: [%v] - closing idle connections", err)
+		client.CloseIdleConnections()
 		xTransport.transport.CloseIdleConnections()
 		getErrDetails := err.Error()
 		if rtt > timeout {
@@ -867,7 +874,7 @@ func (xTransport *XTransport) Fetch(
 						hasTLSConnected = 0
 					case 3: // No Cipher Suite at start up add server Cipher Suite
 						if resp != nil { // Usually we won't configure TLS through here from the server so ignore stamp server check and add TLS if exist to bypass custom drop lock
-							if resp.TLS != nil {
+							if resp.TLS != nil && len([]uint16{resp.TLS.CipherSuite}) > 0 {
 								if xTransport.tlsCipherSuite == nil {
 									xTransport.tlsCipherSuite = []uint16{resp.TLS.CipherSuite}
 									xTransport.transport.TLSClientConfig.CipherSuites = []uint16{resp.TLS.CipherSuite}

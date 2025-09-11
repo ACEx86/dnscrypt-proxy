@@ -472,20 +472,20 @@ func execNetProbe(proxy *Proxy, flags *ConfigFlags, config *Config) {
 	if netprobeTimeout > 0 {
 		var nerr error = nil
 		if nerr = NetProbe(proxy, netprobeAddress, netprobeTimeout); nerr != nil {
-			if len(DefaultNetprobeAddress) > 8 && netprobeAddress != DefaultNetprobeAddress && Bypass_NetProbe == 1 {
+			if len(DefaultNetprobeAddress) > 8 && netprobeAddress != DefaultNetprobeAddress && Bypass_NetProbe == false {
 				nerr = nil
 				nerr = NetProbe(proxy, DefaultNetprobeAddress, netprobeTimeout)
 			}
-			if nerr != nil && len(config.BootstrapResolvers[0]) > 8 && config.BootstrapResolvers[0] != netprobeAddress && config.BootstrapResolvers[0] != DefaultNetprobeAddress && Bypass_NetProbe == 1 {
+			if nerr != nil && len(config.BootstrapResolvers[0]) > 8 && config.BootstrapResolvers[0] != netprobeAddress && config.BootstrapResolvers[0] != DefaultNetprobeAddress && Bypass_NetProbe == false {
 				nerr = nil
 				nerr = NetProbe(proxy, config.BootstrapResolvers[0], netprobeTimeout)
 			}
-			if nerr != nil && len(DefaultBootstrapResolver) > 8 && DefaultBootstrapResolver != config.BootstrapResolvers[0] && DefaultBootstrapResolver != netprobeAddress && DefaultBootstrapResolver != DefaultNetprobeAddress && Bypass_NetProbe == 1 {
+			if nerr != nil && len(DefaultBootstrapResolver) > 8 && DefaultBootstrapResolver != config.BootstrapResolvers[0] && DefaultBootstrapResolver != netprobeAddress && DefaultBootstrapResolver != DefaultNetprobeAddress && Bypass_NetProbe == false {
 				nerr = nil
 				nerr = NetProbe(proxy, DefaultBootstrapResolver, netprobeTimeout)
 			}
 			if nerr != nil {
-				if Bypass_NetProbe > 1 {
+				if Bypass_NetProbe == true {
 					dlog.Notice(" ( ! ) Netprobe failed but network connectivity detected")
 				} else {
 					dlog.Notice(nerr)

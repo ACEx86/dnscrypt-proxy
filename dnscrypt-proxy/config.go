@@ -24,7 +24,7 @@ const (
 	DefaultBootstrapResolver = "9.9.9.9:53"
 )
 
-var Bypass_NetProbe = 1
+var Bypass_NetProbe = false
 var Drop13 = false
 var Drop12 = false
 

@@ -52,15 +52,15 @@ func NetProbe(proxy *Proxy, address string, timeout int) error {
 			dlog.Debug(err)
 			time.Sleep(1 * time.Second)
 			// Needed to exit NetProbe since the packet can be blocked by a firewall but a connection to the query addr may be established
-			if Bypass_NetProbe == 3 { // Add timeout check to return more on point info
+			if Bypass_NetProbe == true { // Add timeout check to return more on point info
 				dlog.Notice(" ( ! ) Connection to NetProbe address failed")
 				return nil
 			}
 			continue
 		}
 		pc.Close()
-		if Bypass_NetProbe != 3 {
-			Bypass_NetProbe = 3
+		if Bypass_NetProbe == false {
+			Bypass_NetProbe = true
 			dlog.Notice(" [ + ] Network connectivity detected")
 		}
 		return nil

@@ -216,9 +216,9 @@ func (serversInfo *ServersInfo) refreshServer(proxy *Proxy, name string, stamp s
 		return err
 	}
 	//
-	if Bypass_NetProbe != 3 {
-		Bypass_NetProbe = 3
-		dlog.Infof(" [ + ] Network Connectivity Detected")
+	if Bypass_NetProbe == false {
+		Bypass_NetProbe = true
+		dlog.Noticef(" [ + ] Network Connectivity Detected")
 	}
 	if name != newServer.Name {
 		dlog.Fatalf("[%s] != [%s]", name, newServer.Name)

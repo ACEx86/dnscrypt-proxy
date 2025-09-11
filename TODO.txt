@@ -1,14 +1,18 @@
 TODO:
 
-Add get and try cipher suites in configuration order for TLS 1.2. Can do this by trying them 1 by 1 in order and then continue with the normal execution. 
-
 [Completed] Fix DoH drop
-  Re-Check Server Fetch and Fetch usage of compressed.
+    Re-Check Server Fetch and Fetch usage of compressed.
 
-[Important] Improve more the time-out and outbound or inbound connection firewall blocks
+[Important]    Improve more the time-out and outbound or inbound connection firewall blocks
 
-[May exist. Important] At dial check config > than timeout usage. In some dial context the connection timeout may be split and become less based on how much addesses we have. do len / 2 >= addr or * the timeout to fix this.
+[Important]    At dial check config > than timeout usage. In some dial context the connection timeout may be split and become less based on how much addesses we have. do len / 2 >= addr or * the timeout to fix this. For the dial context timeout to be correct we need to have addresses * timeout.
 
-[Improvement] Add force Post Get Request and retries.
+[Completed]    Re-check: don't allow protocol connection drop only on some RSA security bypass.
 
-[May Exist. Important] Re-check don't allow protocol connection drop only on some RSA security bypass.
+[Manipulation] Fix: xTransport Fetch manipulation with wrong TLS version server response
+
+[Improvement]  Add: Force Post - Get Request and retries.
+
+[Improvement]  Add: Control if we want to change cipher cuites after successfull connection and after how many failures
+
+[Improvement]  Add get and try cipher suites in configuration order for TLS 1.2. Can do this by trying them 1 by 1 in order and then continue with the normal execution.
