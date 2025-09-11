@@ -9,7 +9,7 @@ TODO:
 
 [Completed]    Re-check: don't allow protocol connection drop only on some RSA security bypass.
 
-[Manipulation] Fix: xTransport Fetch manipulation with wrong TLS version server response
+[Completed] Fix: xTransport Fetch manipulation with wrong TLS version server response
 
 [Improvement]  Add: Force Post - Get Request and retries.
 

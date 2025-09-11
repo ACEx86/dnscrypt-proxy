@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -80,7 +81,7 @@ type XTransport struct {
 	useIPv6                  bool
 	http3                    bool
 	http3Probe               bool
-	MaxVersion               uint
+	MaxVersion               uint16
 	tlsDisableSessionTickets bool
 	tlsCipherSuite           []uint16
 	keepCipherSuite          bool
@@ -815,12 +816,16 @@ func (xTransport *XTransport) Fetch(
 		err = errors.New("webserver returned an error")
 	}
 
+	TLSVersion := xTransport.MaxVersion
 	// Controlled TLS Drop
 	if (xTransport.MaxVersion == tls.VersionTLS13 && Drop13 == true) || (xTransport.MaxVersion == tls.VersionTLS12 && Drop12 == true) {
 		if resp.TLS != nil {
-			if resp.TLS.Version == tls.VersionTLS13 && Drop13 == true {
+			if reflect.TypeOf(resp.TLS.Version) == reflect.TypeOf(uint16(0)) {
+				TLSVersion = resp.TLS.Version
+			}
+			if TLSVersion == tls.VersionTLS13 && Drop13 == true {
 				err = errors.New("handshake failure")
-			} else if resp.TLS.Version == tls.VersionTLS12 && Drop12 == true {
+			} else if TLSVersion == tls.VersionTLS12 && Drop12 == true {
 				err = errors.New("handshake failure")
 			}
 		} else {
@@ -837,7 +842,7 @@ func (xTransport *XTransport) Fetch(
 		if rtt > timeout {
 			dlog.Info("Connection timeout exceeded")
 		}
-		if xTransport.MaxVersion == tls.VersionTLS13 { // Fall to TLS1.2 with TLS1.3 error
+		if xTransport.MaxVersion == tls.VersionTLS13 && TLSVersion == tls.VersionTLS13 { // Fall to TLS1.2 with TLS1.3 error
 			if strings.Contains(getErrDetails, "handshake failure") {
 				if xTransport.CSHandleError == 0 && rtt < timeout {
 					if xTransport.tlsCipherSuite == nil {
@@ -849,7 +854,7 @@ func (xTransport *XTransport) Fetch(
 					xTransport.rebuildTransport()
 				}
 			}
-		} else if xTransport.MaxVersion == tls.VersionTLS12 {
+		} else if xTransport.MaxVersion == tls.VersionTLS12 && TLSVersion == tls.VersionTLS12 {
 			if xTransport.keepCipherSuite == true {
 				if (strings.Contains(getErrDetails, "handshake failure") || strings.Contains(getErrDetails, "tls: error decoding message")) && rtt < timeout {
 					switch xTransport.CSHandleError {
