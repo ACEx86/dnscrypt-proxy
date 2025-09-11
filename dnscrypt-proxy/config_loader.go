@@ -64,8 +64,8 @@ func configureLogging(proxy *Proxy, flags *ConfigFlags, config *Config) {
 
 // configureXTransport - Configures the XTransport
 func configureXTransport(proxy *Proxy, config *Config) error {
-	Drop13 = config.DropTLS13
-	Drop12 = config.DropTLS12
+	proxy.xTransport.DropTLS12 = config.DropTLS12
+	proxy.xTransport.DropTLS13 = config.DropTLS13
 	if len(config.UserAgent) > 0 {
 		dlog.Infof("Configured User Agent: %s", config.UserAgent)
 		proxy.xTransport.UserAgent = config.UserAgent

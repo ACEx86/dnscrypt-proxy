@@ -84,6 +84,8 @@ type XTransport struct {
 	MaxVersion               uint16
 	tlsDisableSessionTickets bool
 	tlsCipherSuite           []uint16
+	DropTLS13                bool
+	DropTLS12                bool
 	keepCipherSuite          bool
 	CSHandleError            int
 	proxyDialer              *netproxy.Dialer
@@ -818,14 +820,14 @@ func (xTransport *XTransport) Fetch(
 
 	TLSVersion := xTransport.MaxVersion
 	// Controlled TLS Drop
-	if (xTransport.MaxVersion == tls.VersionTLS13 && Drop13 == true) || (xTransport.MaxVersion == tls.VersionTLS12 && Drop12 == true) {
+	if (xTransport.MaxVersion == tls.VersionTLS13 && xTransport.DropTLS13 == true) || (xTransport.MaxVersion == tls.VersionTLS12 && xTransport.DropTLS13 == true) {
 		if resp.TLS != nil {
 			if reflect.TypeOf(resp.TLS.Version) == reflect.TypeOf(uint16(0)) {
 				TLSVersion = resp.TLS.Version
 			}
-			if TLSVersion == tls.VersionTLS13 && Drop13 == true {
+			if TLSVersion == tls.VersionTLS13 && xTransport.DropTLS13 == true {
 				err = errors.New("handshake failure")
-			} else if TLSVersion == tls.VersionTLS12 && Drop12 == true {
+			} else if TLSVersion == tls.VersionTLS12 && xTransport.DropTLS12 == true {
 				err = errors.New("handshake failure")
 			}
 		} else {

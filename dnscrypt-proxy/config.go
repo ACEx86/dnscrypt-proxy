@@ -25,8 +25,6 @@ const (
 )
 
 var Bypass_NetProbe = false
-var Drop13 = false
-var Drop12 = false
 
 type Config struct {
 	DropTLS13                bool               `toml:"drop_13"`
@@ -119,8 +117,6 @@ type Config struct {
 
 func newConfig() Config {
 	return Config{
-		DropTLS13:       false,
-		DropTLS12:       false,
 		UserAgent:       DefaultUserAgent,
 		NoActiveCon:     true,
 		RetryWith2:      true,
@@ -174,6 +170,8 @@ func newConfig() Config {
 		LogMaxSize:               10,
 		LogMaxAge:                7,
 		LogMaxBackups:            1,
+		DropTLS13:                false,
+		DropTLS12:                false,
 		ForceTLS12:               false,
 		TLSDisableSessionTickets: false,
 		TLSCipherSuite:           nil,
