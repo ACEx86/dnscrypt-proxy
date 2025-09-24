@@ -18,10 +18,9 @@ import (
 )
 
 const (
-	MaxTimeout               = 3600
-	DefaultNetprobeAddress   = "1.1.1.3:53"
-	DefaultUserAgent         = "dnscrypt-proxy"
-	DefaultBootstrapResolver = "9.9.9.9:53"
+	MaxTimeout             = 3600
+	DefaultNetprobeAddress = "1.1.1.3:53"
+	DefaultUserAgent       = "dnscrypt-proxy"
 )
 
 var Bypass_NetProbe = false

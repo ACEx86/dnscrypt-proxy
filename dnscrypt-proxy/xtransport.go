@@ -32,12 +32,17 @@ import (
 )
 
 const (
-	DefaultKeepAlive        = 5 * time.Second
-	DefaultTimeout          = 30 * time.Second
-	ResolverReadTimeout     = 5 * time.Second
-	SystemResolverIPTTL     = 24 * time.Hour
-	MinResolverIPTTL        = 12 * time.Hour
-	ExpiredCachedIPGraceTTL = 15 * time.Minute
+	DefaultBootstrapResolver    = "9.9.9.9:53"
+	DefaultKeepAlive            = 5 * time.Second
+	DefaultTimeout              = 30 * time.Second
+	ResolverReadTimeout         = 5 * time.Second
+	SystemResolverIPTTL         = 12 * time.Hour
+	MinResolverIPTTL            = 4 * time.Hour
+	ResolverIPTTLMaxJitter      = 15 * time.Minute
+	ExpiredCachedIPGraceTTL     = 15 * time.Minute
+	resolverRetryCount          = 3
+	resolverRetryInitialBackoff = 150 * time.Millisecond
+	resolverRetryMaxBackoff     = 1 * time.Second
 )
 
 // Some variables
@@ -46,7 +51,7 @@ var hasTLSConnected int = 0
 var preferIPv6 = false
 
 type CachedIPItem struct {
-	ip            net.IP
+	ips           []net.IP
 	expiration    *time.Time
 	updatingUntil *time.Time
 }
@@ -130,6 +135,59 @@ func ParseIP(ipStr string) net.IP {
 	return net.ParseIP(strings.TrimRight(strings.TrimLeft(ipStr, "["), "]"))
 }
 
+func uniqueNormalizedIPs(ips []net.IP) []net.IP {
+	if len(ips) == 0 {
+		return nil
+	}
+	unique := make([]net.IP, 0, len(ips))
+	seen := make(map[string]struct{}, len(ips))
+	for _, ip := range ips {
+		if ip == nil {
+			continue
+		}
+		copyIP := append(net.IP(nil), ip...)
+		key := copyIP.String()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		unique = append(unique, copyIP)
+	}
+	return unique
+}
+
+func (xTransport *XTransport) saveCachedIPs(host string, ips []net.IP, ttl time.Duration) {
+	normalized := uniqueNormalizedIPs(ips)
+	if len(normalized) == 0 {
+		return
+	}
+	item := &CachedIPItem{ips: normalized}
+	if ttl >= 0 {
+		if ttl < MinResolverIPTTL {
+			ttl = MinResolverIPTTL
+		}
+		ttl += time.Duration(rand.Int63n(int64(ResolverIPTTLMaxJitter)))
+		expiration := time.Now().Add(ttl)
+		item.expiration = &expiration
+	}
+	xTransport.cachedIPs.Lock()
+	item.updatingUntil = nil
+	xTransport.cachedIPs.cache[host] = item
+	xTransport.cachedIPs.Unlock()
+	if len(normalized) == 1 {
+		dlog.Infof("[%s] cached IP [%s], valid for %v", host, normalized[0], ttl)
+	} else {
+		dlog.Infof("[%s] cached %d IP addresses (first: %s), valid for %v", host, len(normalized), normalized[0], ttl)
+	}
+}
+
+func (xTransport *XTransport) saveCachedIP(host string, ip net.IP, ttl time.Duration) {
+	if ip == nil {
+		return
+	}
+	xTransport.saveCachedIPs(host, []net.IP{ip}, ttl)
+}
+
 // Mark an entry as being updated
 func (xTransport *XTransport) markUpdatingCachedIP(host string) {
 	xTransport.cachedIPs.Lock()
@@ -144,44 +202,45 @@ func (xTransport *XTransport) markUpdatingCachedIP(host string) {
 	xTransport.cachedIPs.Unlock()
 }
 
-func (xTransport *XTransport) saveCachedIP(host string, ip net.IP, ttl time.Duration) {
-	item := &CachedIPItem{ip: ip, expiration: nil, updatingUntil: nil}
-	if ttl >= 0 {
-		if ttl < MinResolverIPTTL {
-			ttl = MinResolverIPTTL
-		} else if ttl > SystemResolverIPTTL {
-			ttl = SystemResolverIPTTL
+func (xTransport *XTransport) loadCachedIPs(host string) (ips []net.IP, expired bool, updating bool) {
+	ips = nil
+	xTransport.cachedIPs.RLock()
+	item, ok := xTransport.cachedIPs.cache[host]
+	if !ok {
+		xTransport.cachedIPs.RUnlock()
+		dlog.Debugf("[%s] IP address not found in the cache", host)
+		return nil, false, false
+	}
+	if len(item.ips) > 0 {
+		ips = make([]net.IP, 0, len(item.ips))
+		for _, ip := range item.ips {
+			if ip == nil {
+				continue
+			}
+			ips = append(ips, append(net.IP(nil), ip...))
 		}
 	}
-	expiration := time.Now().Add(ttl)
-	item.expiration = &expiration
-	xTransport.cachedIPs.Lock()
-	xTransport.cachedIPs.cache[host] = item
-	xTransport.cachedIPs.Unlock()
+	expiration := item.expiration
+	updatingUntil := item.updatingUntil
+	xTransport.cachedIPs.RUnlock()
+	if expiration != nil && time.Until(*expiration) < 0 {
+		expired = true
+		if updatingUntil != nil && time.Until(*updatingUntil) > 0 {
+			updating = true
+			dlog.Debugf("[%s] cached IP addresses are being updated", host)
+		} else {
+			dlog.Debugf("[%s] cached IP addresses expired, not being updated yet", host)
+		}
+	}
+	return ips, expired, updating
 }
 
 func (xTransport *XTransport) loadCachedIP(host string) (ip net.IP, expired bool, updating bool) {
-	ip, expired, updating = nil, false, false
-	xTransport.cachedIPs.RLock()
-	item, ok := xTransport.cachedIPs.cache[host]
-	xTransport.cachedIPs.RUnlock()
-	if !ok || item.ip == nil || len(item.ip) <= 0 {
-		dlog.Infof("[%s] IP address not found in the cache", host)
-		return nil, false, false
+	ips, expired, updating := xTransport.loadCachedIPs(host)
+	if len(ips) > 0 {
+		return ips[0], expired, updating
 	}
-	ip = item.ip
-	expiration := item.expiration
-	if expiration != nil && time.Until(*expiration) <= 0 {
-		expired = true
-		if item.updatingUntil != nil {
-			if time.Until(*item.updatingUntil) > 0 {
-				updating = true
-			} else {
-				updating = false
-			}
-		}
-	}
-	return ip, expired, updating
+	return nil, expired, updating
 }
 
 // DefaultTLSCipherSuites The default TLS 1.2 secure cipher suites
@@ -363,7 +422,7 @@ func (xTransport *XTransport) rebuildTransport() {
 	}
 
 	transport.TLSClientConfig = &tlsClientConfig
-	if http2Transport, _ := http2.ConfigureTransports(transport); http2Transport == nil {
+	if http2Transport, _ := http2.ConfigureTransports(transport); http2Transport != nil {
 		http2Transport.ReadIdleTimeout = timeout
 		http2Transport.AllowHTTP = false
 	}
@@ -522,6 +581,53 @@ func (xTransport *XTransport) resolveUsingServers(
 	return ips, ttl, err
 }
 
+func (xTransport *XTransport) resolve(host string, returnIPv4, returnIPv6 bool) (ips []net.IP, ttl time.Duration, err error) {
+	protos := []string{"udp", "tcp"}
+	if xTransport.mainProto == "tcp" {
+		protos = []string{"tcp", "udp"}
+	}
+	if xTransport.ignoreSystemDNS {
+		if xTransport.internalResolverReady {
+			for _, proto := range protos {
+				ips, ttl, err = xTransport.resolveUsingServers(proto, host, xTransport.internalResolvers, returnIPv4, returnIPv6)
+				if err == nil {
+					break
+				}
+			}
+		} else {
+			err = errors.New("dnscrypt-proxy service is not usable yet")
+			dlog.Notice(err)
+		}
+	} else {
+		ips, ttl, err = xTransport.resolveUsingSystem(host, returnIPv4, returnIPv6)
+		if err != nil {
+			err = errors.New("System DNS is not usable yet")
+			dlog.Notice(err)
+		}
+	}
+	if err != nil {
+		for _, proto := range protos {
+			if err != nil {
+				dlog.Noticef(
+					"Resolving server host [%s] using bootstrap resolvers over %s",
+					host,
+					proto,
+				)
+			}
+			ips, ttl, err = xTransport.resolveUsingServers(proto, host, xTransport.bootstrapResolvers, returnIPv4, returnIPv6)
+			if err == nil {
+				break
+			}
+		}
+	}
+	if err != nil && xTransport.ignoreSystemDNS {
+		dlog.Noticef("Bootstrap resolvers didn't respond - Trying with the system resolver as a last resort")
+		ips, ttl, err = xTransport.resolveUsingSystem(host, returnIPv4, returnIPv6)
+	}
+	return ips, ttl, err
+}
+
+// If a name is not present in the cache, resolve the name and update the cache
 func (xTransport *XTransport) resolveAndUpdateCache(host string, is_STAMP bool) error {
 	if xTransport.proxyDialer != nil || xTransport.httpProxyFunction != nil {
 		return nil
@@ -543,7 +649,7 @@ func (xTransport *XTransport) resolveAndUpdateCache(host string, is_STAMP bool) 
 	}
 	if xTransport.internalResolverReady {
 		for _, proto := range protos {
-			foundIP, ttl, err = xTransport.resolveUsingResolvers(proto, host, xTransport.internalResolvers)
+			foundIP, ttl, err = xTransport.resolveUsingServers(proto, host, xTransport.internalResolvers, xTransport.useIPv4, xTransport.useIPv6)
 			if err == nil {
 				dlog.Infof("- - - Updating complete with protocol: %v   || IP Address: %v", proto, foundIP)
 				break
@@ -562,7 +668,7 @@ func (xTransport *XTransport) resolveAndUpdateCache(host string, is_STAMP bool) 
 							proto,
 						)
 					}
-					foundIP, ttl, err = xTransport.resolveUsingResolvers(proto, host, xTransport.bootstrapResolvers)
+					foundIP, ttl, err = xTransport.resolveUsingServers(proto, host, xTransport.bootstrapResolvers, xTransport.useIPv4, xTransport.useIPv6)
 					if err == nil {
 						break
 					}
@@ -581,7 +687,7 @@ func (xTransport *XTransport) resolveAndUpdateCache(host string, is_STAMP bool) 
 					host,
 					proto,
 				)
-				foundIP, ttl, err = xTransport.resolveUsingResolvers(proto, host, xTransport.bootstrapResolvers)
+				foundIP, ttl, err = xTransport.resolveUsingServers(proto, host, xTransport.bootstrapResolvers, xTransport.useIPv4, xTransport.useIPv6)
 				if err == nil {
 					break
 				}
@@ -593,7 +699,7 @@ func (xTransport *XTransport) resolveAndUpdateCache(host string, is_STAMP bool) 
 
 		if err != nil && xTransport.ignoreSystemDNS == false {
 			dlog.Noticef(" ( + ) Bootstrap resolvers didn't respond - Trying with the system resolver as a last resort")
-			foundIP, ttl, err = xTransport.resolveUsingSystem(host)
+			foundIP, ttl, err = xTransport.resolveUsingSystem(host, xTransport.useIPv4, xTransport.useIPv6)
 			if err != nil {
 				err = errors.New("system DNS error")
 				dlog.Notice(err)
