@@ -108,7 +108,6 @@ type Config struct {
 	CloakedPTR               bool                        `toml:"cloak_ptr"`
 	AnonymizedDNS            AnonymizedDNSConfig         `toml:"anonymized_dns"`
 	DoHClientX509Auth        DoHClientX509AuthConfig     `toml:"doh_client_x509_auth"`
-	DoHClientX509AuthLegacy  DoHClientX509AuthConfig     `toml:"tls_client_auth"`
 	DNS64                    DNS64Config                 `toml:"dns64"`
 	EDNSClientSubnet         []string                    `toml:"edns_client_subnet"`
 	IPEncryption             IPEncryptionConfig          `toml:"ip_encryption"`

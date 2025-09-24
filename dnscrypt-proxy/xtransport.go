@@ -276,13 +276,15 @@ func (xTransport *XTransport) rebuildTransport() {
 		}
 		additionalCaCert, err := os.ReadFile(clientCreds.rootCA)
 		if err != nil {
-			dlog.Fatal(err)
+			dlog.Fatalf("Unable to read rootCA file [%s]: %v", clientCreds.rootCA, err)
 		}
 		if additionalCaCert == nil {
 			dlog.Fatal("Additional CA certificate not supported on this platform.")
 		} else {
 			if err == nil {
-				certPool.AppendCertsFromPEM(additionalCaCert)
+				if ok := certPool.AppendCertsFromPEM(additionalCaCert); !ok {
+					dlog.Fatalf("No valid certificates found in rootCA file [%s]", clientCreds.rootCA)
+				}
 			}
 		}
 	}

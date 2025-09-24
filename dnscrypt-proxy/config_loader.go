@@ -107,7 +107,7 @@ func configureXTransport(proxy *Proxy, config *Config) error {
 		}
 		// Pre-resolve proxy hostname using bootstrap resolvers if it's a domain
 		if httpProxyURL.Hostname() != "" && ParseIP(httpProxyURL.Hostname()) == nil {
-			ips, ttl, err := proxy.xTransport.resolve(httpProxyURL.Hostname(), proxy.xTransport.useIPv4, proxy.xTransport.useIPv6)
+			ips, ttl, err := proxy.xTransport.resolve(httpProxyURL.Hostname(), false, proxy.xTransport.useIPv4, proxy.xTransport.useIPv6)
 			if err != nil {
 				dlog.Warnf("Unable to resolve HTTP proxy hostname [%s] using bootstrap resolvers: %v", httpProxyURL.Hostname(), err)
 			} else if len(ips) > 0 {
@@ -153,10 +153,6 @@ func configureXTransport(proxy *Proxy, config *Config) error {
 
 // configureDoHClientAuth - Configures DoH client authentication
 func configureDoHClientAuth(proxy *Proxy, config *Config) error {
-	if config.DoHClientX509AuthLegacy.Creds != nil {
-		return errors.New("[tls_client_auth] has been renamed to [doh_client_x509_auth] - Update your config file")
-	}
-
 	dohClientCreds := config.DoHClientX509Auth.Creds
 	if len(dohClientCreds) > 0 {
 		dlog.Noticef("Enabling TLS authentication")
