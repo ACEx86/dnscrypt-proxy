@@ -124,7 +124,7 @@ func (source *Source) updateCache(bin, sig []byte) {
 	now := getCurrentTime()
 	file := source.cacheFile
 	absPath := file
-	if resolved, err := filepath.Abs(file); err != nil {
+	if resolved, err := filepath.Abs(file); err == nil {
 		absPath = resolved
 	}
 
@@ -289,7 +289,7 @@ func (source *Source) parseV2() ([]RegisteredServer, error) {
 		stampErrs = append(stampErrs, stampErr)
 		dlog.Warn(stampErr)
 	}
-	
+
 	source.RLock()
 	binCopy := make([]byte, len(source.bin))
 	copy(binCopy, source.bin)
