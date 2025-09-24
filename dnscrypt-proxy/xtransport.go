@@ -581,77 +581,16 @@ func (xTransport *XTransport) resolveUsingServers(
 	return ips, ttl, err
 }
 
-func (xTransport *XTransport) resolve(host string, returnIPv4, returnIPv6 bool) (ips []net.IP, ttl time.Duration, err error) {
-	protos := []string{"udp", "tcp"}
-	if xTransport.mainProto == "tcp" {
-		protos = []string{"tcp", "udp"}
-	}
-	if xTransport.ignoreSystemDNS {
-		if xTransport.internalResolverReady {
-			for _, proto := range protos {
-				ips, ttl, err = xTransport.resolveUsingServers(proto, host, xTransport.internalResolvers, returnIPv4, returnIPv6)
-				if err == nil {
-					break
-				}
-			}
-		} else {
-			err = errors.New("dnscrypt-proxy service is not usable yet")
-			dlog.Notice(err)
-		}
-	} else {
-		ips, ttl, err = xTransport.resolveUsingSystem(host, returnIPv4, returnIPv6)
-		if err != nil {
-			err = errors.New("System DNS is not usable yet")
-			dlog.Notice(err)
-		}
-	}
-	if err != nil {
-		for _, proto := range protos {
-			if err != nil {
-				dlog.Noticef(
-					"Resolving server host [%s] using bootstrap resolvers over %s",
-					host,
-					proto,
-				)
-			}
-			ips, ttl, err = xTransport.resolveUsingServers(proto, host, xTransport.bootstrapResolvers, returnIPv4, returnIPv6)
-			if err == nil {
-				break
-			}
-		}
-	}
-	if err != nil && xTransport.ignoreSystemDNS {
-		dlog.Noticef("Bootstrap resolvers didn't respond - Trying with the system resolver as a last resort")
-		ips, ttl, err = xTransport.resolveUsingSystem(host, returnIPv4, returnIPv6)
-	}
-	return ips, ttl, err
-}
-
-// If a name is not present in the cache, resolve the name and update the cache
-func (xTransport *XTransport) resolveAndUpdateCache(host string, is_STAMP bool) error {
-	if xTransport.proxyDialer != nil || xTransport.httpProxyFunction != nil {
-		return nil
-	}
-	if ParseIP(host) != nil {
-		return nil
-	}
-	cachedIP, expired, updating := xTransport.loadCachedIP(host)
-	if cachedIP != nil && (!expired || updating) {
-		return nil
-	}
-	xTransport.markUpdatingCachedIP(host)
-	var foundIP net.IP
-	var ttl time.Duration
-	var err error
+func (xTransport *XTransport) resolve(host string, is_STAMP, returnIPv4, returnIPv6 bool) (ips []net.IP, ttl time.Duration, err error) {
 	protos := []string{"udp", "tcp"}
 	if xTransport.mainProto == "tcp" {
 		protos = []string{"tcp", "udp"}
 	}
 	if xTransport.internalResolverReady {
 		for _, proto := range protos {
-			foundIP, ttl, err = xTransport.resolveUsingServers(proto, host, xTransport.internalResolvers, xTransport.useIPv4, xTransport.useIPv6)
+			ips, ttl, err = xTransport.resolveUsingServers(proto, host, xTransport.internalResolvers, xTransport.useIPv4, xTransport.useIPv6)
 			if err == nil {
-				dlog.Infof("- - - Updating complete with protocol: %v   || IP Address: %v", proto, foundIP)
+				dlog.Infof("- - - Updating complete with protocol: %v   || IP Address: %v", proto, ips)
 				break
 			}
 		}
@@ -668,7 +607,7 @@ func (xTransport *XTransport) resolveAndUpdateCache(host string, is_STAMP bool) 
 							proto,
 						)
 					}
-					foundIP, ttl, err = xTransport.resolveUsingServers(proto, host, xTransport.bootstrapResolvers, xTransport.useIPv4, xTransport.useIPv6)
+					ips, ttl, err = xTransport.resolveUsingServers(proto, host, xTransport.bootstrapResolvers, xTransport.useIPv4, xTransport.useIPv6)
 					if err == nil {
 						break
 					}
@@ -687,7 +626,7 @@ func (xTransport *XTransport) resolveAndUpdateCache(host string, is_STAMP bool) 
 					host,
 					proto,
 				)
-				foundIP, ttl, err = xTransport.resolveUsingServers(proto, host, xTransport.bootstrapResolvers, xTransport.useIPv4, xTransport.useIPv6)
+				ips, ttl, err = xTransport.resolveUsingServers(proto, host, xTransport.bootstrapResolvers, xTransport.useIPv4, xTransport.useIPv6)
 				if err == nil {
 					break
 				}
@@ -699,7 +638,7 @@ func (xTransport *XTransport) resolveAndUpdateCache(host string, is_STAMP bool) 
 
 		if err != nil && xTransport.ignoreSystemDNS == false {
 			dlog.Noticef(" ( + ) Bootstrap resolvers didn't respond - Trying with the system resolver as a last resort")
-			foundIP, ttl, err = xTransport.resolveUsingSystem(host, xTransport.useIPv4, xTransport.useIPv6)
+			ips, ttl, err = xTransport.resolveUsingSystem(host, xTransport.useIPv4, xTransport.useIPv6)
 			if err != nil {
 				err = errors.New("system DNS error")
 				dlog.Notice(err)
@@ -712,21 +651,38 @@ func (xTransport *XTransport) resolveAndUpdateCache(host string, is_STAMP bool) 
 			}
 		}
 	}
+	return ips, ttl, err
+}
+
+// If a name is not present in the cache, resolve the name and update the cache
+func (xTransport *XTransport) resolveAndUpdateCache(host string, is_STAMP bool) error {
+	if xTransport.proxyDialer != nil || xTransport.httpProxyFunction != nil {
+		return nil
+	}
+	if ParseIP(host) != nil {
+		return nil
+	}
+	cachedIPs, expired, updating := xTransport.loadCachedIPs(host)
+	if len(cachedIPs) > 0 && (!expired || updating) {
+		return nil
+	}
+	xTransport.markUpdatingCachedIP(host)
+
+	ips, ttl, err := xTransport.resolve(host, is_STAMP, xTransport.useIPv4, xTransport.useIPv6)
 	if ttl < MinResolverIPTTL {
 		ttl = MinResolverIPTTL
-	} else if ttl > SystemResolverIPTTL {
-		ttl = SystemResolverIPTTL
+	}
+	selectedIPs := ips
+	if (err != nil || len(selectedIPs) == 0) && len(cachedIPs) > 0 {
+		dlog.Noticef("Using stale [%v] cached address for a grace period", host)
+		selectedIPs = cachedIPs
+		ttl = ExpiredCachedIPGraceTTL
+		err = nil
 	}
 	if err != nil {
-		if cachedIP != nil {
-			dlog.Noticef("Using stale [%v] cached address for a grace period", host)
-			foundIP = cachedIP
-			ttl = ExpiredCachedIPGraceTTL
-		} else {
-			return err
-		}
+		return err
 	}
-	if foundIP == nil {
+	if len(selectedIPs) == 0 {
 		if !xTransport.useIPv4 && xTransport.useIPv6 {
 			dlog.Warnf("no IPv6 address found for [%s]", host)
 		} else if xTransport.useIPv4 && !xTransport.useIPv6 {
@@ -734,11 +690,9 @@ func (xTransport *XTransport) resolveAndUpdateCache(host string, is_STAMP bool) 
 		} else {
 			dlog.Errorf("no IP address found for [%s]", host)
 		}
-	} else {
-		xTransport.saveCachedIP(host, foundIP, ttl)
-		dlog.Infof("[%s] IP address [%s] added to the cache, valid for %v", host, foundIP, ttl)
+		return nil
 	}
-
+	xTransport.saveCachedIPs(host, selectedIPs, ttl)
 	return nil
 }
 
