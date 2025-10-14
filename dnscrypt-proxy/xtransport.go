@@ -615,13 +615,17 @@ func (xTransport *XTransport) resolve(host string, is_STAMP, returnIPv4, returnI
 					}
 				}
 			} else {
-				err = errors.New("( ! ) Bootstrap resolvers is empty")
+				if is_STAMP {
+					err = errors.New("( ! ) Bootstrap resolvers is empty and STAMP is not available")
+				} else {
+					err = errors.New("( ! ) Bootstrap resolvers is empty")
+				}
 				dlog.Notice(err)
 			}
 		}
 
-		if err != nil && xTransport.NoFallback == false {
-			if xTransport.ignoreSystemDNS == false {
+		if err != nil {
+			if xTransport.NoFallback == false && xTransport.ignoreSystemDNS == false {
 				dlog.Noticef(" ( + ) Bootstrap resolvers didn't respond - Trying with the system resolver as a last resort")
 				err = nil
 				ips, ttl, err = xTransport.resolveUsingSystem(host, xTransport.useIPv4, xTransport.useIPv6)
@@ -629,7 +633,8 @@ func (xTransport *XTransport) resolve(host string, is_STAMP, returnIPv4, returnI
 					err = errors.New("( ! ) System DNS error")
 					dlog.Notice(err)
 				}
-			} else if xTransport.ignoreSystemDNS == true {
+			}
+			if xTransport.ignoreSystemDNS == true {
 				if len(xTransport.bootstrapResolvers) > 0 {
 					dlog.Noticef(" ( ! ) Bootstrap resolver failled and system dns is ignored")
 				} else {
