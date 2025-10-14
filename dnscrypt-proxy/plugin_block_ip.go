@@ -132,7 +132,7 @@ func (plugin *PluginBlockIP) SetConfigWatcher(watcher *ConfigWatcher) {
 }
 
 func (plugin *PluginBlockIP) Eval(pluginsState *PluginsState, msg *dns.Msg) error {
-	if pluginsState.sessionData["whitelisted"] != nil {
+	if pluginsState.sessionData["allowlist"] != nil {
 		return nil
 	}
 
@@ -162,6 +162,7 @@ func (plugin *PluginBlockIP) Eval(pluginsState *PluginsState, msg *dns.Msg) erro
 			reject, reason = true, ipStr
 			break
 		}
+
 		match, _, found := plugin.blockedPrefixes.Root().LongestPrefix([]byte(ipStr))
 		if found {
 			if len(match) == len(ipStr) || (ipStr[len(match)] == '.' || ipStr[len(match)] == ':') {

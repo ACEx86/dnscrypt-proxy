@@ -27,31 +27,23 @@ const (
 )
 
 const (
-	ClientMagicLen = 8
-)
-
-const (
-	MaxHTTPBodyLength = 1000000
-)
-
-var (
-	CertMagic               = [4]byte{0x44, 0x4e, 0x53, 0x43}
-	ServerMagic             = [8]byte{0x72, 0x36, 0x66, 0x6e, 0x76, 0x57, 0x6a, 0x38}
-	MinDNSPacketSize        = 12 + 5
-	MaxDNSPacketSize        = 4096
-	MaxDNSUDPPacketSize     = 4096
-	MaxDNSUDPSafePacketSize = 1252
-	InitialMinQuestionSize  = 512
+	ClientMagicLen           = 8
+	InheritedDescriptorsBase = uintptr(50)
+	InitialMinQuestionSize   = 512
+	MaxHTTPBodyLength        = 1000000
+	MinDNSPacketSize         = 17
+	MaxDNSPacketSize         = 4096
+	MaxDNSUDPPacketSize      = 4096
+	MaxDNSUDPSafePacketSize  = 1252
 )
 
 var (
+	CertMagic   = [4]byte{0x44, 0x4e, 0x53, 0x43}
+	ServerMagic = [8]byte{0x72, 0x36, 0x66, 0x6e, 0x76, 0x57, 0x6a, 0x38}
+
 	FileDescriptors   = make([]*os.File, 0)
 	FileDescriptorNum = uintptr(0)
 	FileDescriptorsMu sync.Mutex
-)
-
-const (
-	InheritedDescriptorsBase = uintptr(50)
 )
 
 func PrefixWithSize(packet []byte) ([]byte, error) {

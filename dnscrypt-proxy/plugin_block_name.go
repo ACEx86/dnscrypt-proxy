@@ -200,7 +200,7 @@ func (plugin *PluginBlockName) SetConfigWatcher(watcher *ConfigWatcher) {
 }
 
 func (plugin *PluginBlockName) Eval(pluginsState *PluginsState, msg *dns.Msg) error {
-	if pluginsState.sessionData["whitelisted"] != nil {
+	if pluginsState.sessionData["allowlist"] != nil {
 		return nil
 	}
 
@@ -246,7 +246,7 @@ func (plugin *PluginBlockNameResponse) Reload() error {
 }
 
 func (plugin *PluginBlockNameResponse) Eval(pluginsState *PluginsState, msg *dns.Msg) error {
-	if pluginsState.sessionData["whitelisted"] != nil {
+	if pluginsState.sessionData["allowlist"] != nil {
 		return nil
 	}
 
