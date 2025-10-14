@@ -88,7 +88,7 @@ type Config struct {
 	SourceIPv6               bool                        `toml:"ipv6_servers"`
 	MaxClients               uint32                      `toml:"max_clients"`
 	BootstrapResolvers       []string                    `toml:"bootstrap_resolvers"`
-	NoFallback               bool                        `toml:"no_fallback"`
+	NoFallback               bool                        `toml:"no_sys_fallback"`
 	IgnoreSystemDNS          bool                        `toml:"ignore_system_dns"`
 	AllWeeklyRanges          map[string]WeeklyRangesStr  `toml:"schedules"`
 	LogMaxSize               int                         `toml:"log_files_max_size"`

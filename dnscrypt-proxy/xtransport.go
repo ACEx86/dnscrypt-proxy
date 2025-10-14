@@ -597,59 +597,44 @@ func (xTransport *XTransport) resolve(host string, is_STAMP, returnIPv4, returnI
 			}
 		}
 	} else {
-		err = errors.New("service is not usable yet")
+		err = errors.New("( ! ) Service is not usable yet")
 		dlog.Notice(err)
-		if xTransport.NoFallback && is_STAMP {
+	}
+	if err != nil {
+		if xTransport.NoFallback == false || is_STAMP {
 			if xTransport.bootstrapResolvers != nil && len(xTransport.bootstrapResolvers) > 0 {
 				for _, proto := range protos {
-					if err != nil {
-						dlog.Noticef(
-							"Resolving server host [%s] using bootstrap resolvers over %s",
-							host,
-							proto,
-						)
-					}
+					dlog.Noticef(
+						"Resolving server host [%s] using bootstrap resolvers over %s",
+						host,
+						proto,
+					)
 					ips, ttl, err = xTransport.resolveUsingServers(proto, host, xTransport.bootstrapResolvers, xTransport.useIPv4, xTransport.useIPv6)
 					if err == nil {
 						break
 					}
 				}
 			} else {
-				err = errors.New("bootstrap resolvers is empty and STAMPS is not available")
+				err = errors.New("( ! ) Bootstrap resolvers is empty")
 				dlog.Notice(err)
 			}
-		}
-	}
-	if err != nil && !xTransport.NoFallback {
-		if xTransport.bootstrapResolvers != nil && len(xTransport.bootstrapResolvers) > 0 {
-			for _, proto := range protos {
-				dlog.Noticef(
-					"Resolving server host [%s] using bootstrap resolvers over %s",
-					host,
-					proto,
-				)
-				ips, ttl, err = xTransport.resolveUsingServers(proto, host, xTransport.bootstrapResolvers, xTransport.useIPv4, xTransport.useIPv6)
-				if err == nil {
-					break
-				}
-			}
-		} else {
-			err = errors.New("bootstrap resolvers is empty")
-			dlog.Notice(err)
 		}
 
-		if err != nil && xTransport.ignoreSystemDNS == false {
-			dlog.Noticef(" ( + ) Bootstrap resolvers didn't respond - Trying with the system resolver as a last resort")
-			ips, ttl, err = xTransport.resolveUsingSystem(host, xTransport.useIPv4, xTransport.useIPv6)
-			if err != nil {
-				err = errors.New("system DNS error")
-				dlog.Notice(err)
-			}
-		} else if err != nil && xTransport.ignoreSystemDNS == true {
-			if len(xTransport.bootstrapResolvers) > 0 {
-				dlog.Noticef(" ( ! ) Bootstrap resolver failled and we are ignoring system dns")
-			} else {
-				dlog.Noticef(" ( ! ) Bootstrap resolvers is not set and we are ignoring system dns")
+		if err != nil && xTransport.NoFallback == false {
+			if xTransport.ignoreSystemDNS == false {
+				dlog.Noticef(" ( + ) Bootstrap resolvers didn't respond - Trying with the system resolver as a last resort")
+				err = nil
+				ips, ttl, err = xTransport.resolveUsingSystem(host, xTransport.useIPv4, xTransport.useIPv6)
+				if err != nil {
+					err = errors.New("( ! ) System DNS error")
+					dlog.Notice(err)
+				}
+			} else if xTransport.ignoreSystemDNS == true {
+				if len(xTransport.bootstrapResolvers) > 0 {
+					dlog.Noticef(" ( ! ) Bootstrap resolver failled and system dns is ignored")
+				} else {
+					dlog.Noticef(" ( ! ) Bootstrap resolvers is not set and system dns is ignored")
+				}
 			}
 		}
 	}
