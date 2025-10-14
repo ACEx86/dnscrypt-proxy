@@ -228,6 +228,7 @@ func configureLoadBalancing(proxy *Proxy, config *Config) {
 func configurePlugins(proxy *Proxy, config *Config) {
 	// Configure listen addresses and paths
 	proxy.listenAddresses = config.ListenAddresses
+	listenaddresses = config.ListenAddresses
 	proxy.localDoHListenAddresses = config.LocalDoH.ListenAddresses
 
 	if len(config.LocalDoH.Path) > 0 && config.LocalDoH.Path[0] != '/' {

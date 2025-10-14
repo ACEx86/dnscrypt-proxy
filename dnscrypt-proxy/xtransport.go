@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -49,6 +50,7 @@ const (
 var rebuildingTransport bool = false
 var hasTLSConnected int = 0
 var preferIPv6 = false
+var listenaddresses []string
 
 type CachedIPItem struct {
 	ips           []net.IP
@@ -484,29 +486,98 @@ func (xTransport *XTransport) rebuildTransport() {
 	}
 }
 
+// Get the systems dns addresses for linux
+func get_DNSServers() []string {
+	var dnsServers []string
+
+	file, err := os.Open("/etc/resolv.conf")
+	defer file.Close()
+	if err != nil {
+		return nil
+	}
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "nameserver") {
+			parts := strings.Fields(line)
+			if len(parts) > 1 {
+				dnsServers = append(dnsServers, parts[1])
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil
+	}
+
+	return dnsServers
+}
+
+func RemoveDuplicates(elements []string) []string {
+	for y := 0; y < len(elements); y++ {
+		if len(elements[y]) > 0 {
+			for x := 1; x < len(elements); x++ {
+				if len(elements[x]) > 0 {
+					if elements[y] == elements[x] {
+						elements[x] = ""
+					}
+				}
+			}
+		}
+	}
+	return elements
+}
+
 // Resolve using the system resolver: net.LookupHost
 func (xTransport *XTransport) resolveUsingSystem(host string, returnIPv4, returnIPv6 bool) ([]net.IP, time.Duration, error) {
 	if !xTransport.ignoreSystemDNS {
-		ipa, err := net.LookupIP(host)
-		if err == nil {
-			if returnIPv4 && returnIPv6 {
-				return ipa, SystemResolverIPTTL, nil
-			}
-			ips := make([]net.IP, 0)
-			for _, ip := range ipa {
-				ipv4 := ip.To4()
-				if returnIPv4 && ipv4 != nil {
-					ips = append(ips, ipv4)
+		localaddresses := get_DNSServers()
+		is_to_query := false
+		if localaddresses != nil && len(localaddresses) > 0 {
+			localaddresses = RemoveDuplicates(localaddresses)
+			llistenaddresses := RemoveDuplicates(listenaddresses)
+			is_is := ""
+			for i := 0; i < len(llistenaddresses); i++ {
+				if len(llistenaddresses[i]) > 0 {
+					for j := 0; j < len(localaddresses); j++ {
+						if len(localaddresses[j]) > 0 {
+							if llistenaddresses[i] != localaddresses[j] {
+								is_is = llistenaddresses[i]
+							}
+						}
+					}
+					if is_is == llistenaddresses[i] {
+						is_is = ""
+					}
 				}
-				if returnIPv6 && ipv4 == nil {
-					ips = append(ips, ip)
-				}
 			}
-			return ips, SystemResolverIPTTL, err
+			if is_is != "" {
+				is_to_query = true
+			}
 		}
-		return nil, SystemResolverIPTTL, err
+		if is_to_query == true {
+			ipa, err := net.LookupIP(host)
+			if err == nil {
+				if returnIPv4 && returnIPv6 {
+					return ipa, SystemResolverIPTTL, nil
+				}
+				ips := make([]net.IP, 0)
+				for _, ip := range ipa {
+					ipv4 := ip.To4()
+					if returnIPv4 && ipv4 != nil {
+						ips = append(ips, ipv4)
+					}
+					if returnIPv6 && ipv4 == nil {
+						ips = append(ips, ip)
+					}
+				}
+				return ips, SystemResolverIPTTL, err
+			}
+			return nil, SystemResolverIPTTL, err
+		}
 	} else {
-		dlog.Warnf(" [ ! ] ( resolveUsingSystem )      :Resolving using system resolver is disabled but the function is called. ( Host: %v )", host)
+		dlog.Warnf(" [ ! ] ( resolveUsingSystem )      :Resolving using system resolver is disabled. ( Host: %v )", host)
 	}
 	return nil, 0, nil
 }
@@ -622,11 +693,16 @@ func (xTransport *XTransport) resolve(host string, is_STAMP, returnIPv4, returnI
 				}
 				dlog.Notice(err)
 			}
+		} else if xTransport.NoFallback == true {
+			err = errors.New("( ! ) Bootstrap resolver is disabled")
+			dlog.Notice(err)
 		}
 
 		if err != nil {
 			if xTransport.NoFallback == false && xTransport.ignoreSystemDNS == false {
 				dlog.Noticef(" ( + ) Bootstrap resolvers didn't respond - Trying with the system resolver as a last resort")
+			}
+			if xTransport.ignoreSystemDNS == false {
 				err = nil
 				ips, ttl, err = xTransport.resolveUsingSystem(host, xTransport.useIPv4, xTransport.useIPv6)
 				if err != nil {
