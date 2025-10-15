@@ -531,28 +531,24 @@ func RemoveDuplicates(elements []string) []string {
 
 // Resolve using the system resolver: net.LookupHost
 func (xTransport *XTransport) resolveUsingSystem(host string, returnIPv4, returnIPv6 bool) ([]net.IP, time.Duration, error) {
-	if !xTransport.ignoreSystemDNS {
+	if xTransport.ignoreSystemDNS == false {
 		localaddresses := get_DNSServers()
 		is_to_query := false
 		if localaddresses != nil && len(localaddresses) > 0 {
 			localaddresses = RemoveDuplicates(localaddresses)
 			llistenaddresses := RemoveDuplicates(listenaddresses)
-			is_is := ""
 			for i := 0; i < len(llistenaddresses); i++ {
 				if len(llistenaddresses[i]) > 0 {
 					for j := 0; j < len(localaddresses); j++ {
 						if len(localaddresses[j]) > 0 {
-							if llistenaddresses[i] != localaddresses[j] {
-								is_is = llistenaddresses[i]
+							if llistenaddresses[i] == localaddresses[j] {
+								localaddresses[j] = ""
 							}
 						}
 					}
-					if is_is == llistenaddresses[i] {
-						is_is = ""
-					}
 				}
 			}
-			if is_is != "" {
+			if len(localaddresses) > 0 {
 				is_to_query = true
 			}
 		}
