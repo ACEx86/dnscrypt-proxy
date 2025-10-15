@@ -1,18 +1,32 @@
 TODO:
 
-[Completed] Fix DoH drop
-    Re-Check Server Fetch and Fetch usage of compressed.
+[Bug] [Done]
+*    Fix DoH drop
 
-[Important]    Improve more the time-out and outbound or inbound connection firewall blocks
+[Bug] [Done]
+*    Re-Check Server Fetch and Fetch usage of compressed.
 
-[Important]    At dial check config > than timeout usage. In some dial context the connection timeout may be split and become less based on how much addesses we have. do len / 2 >= addr or * the timeout to fix this. For the dial context timeout to be correct we need to have addresses * timeout.
+[Important]
+*    Improve more the time-out and outbound or inbound connection firewall blocks
 
-[Completed]    Re-check: don't allow protocol connection drop only on some RSA security bypass.
+[Important]
+*    At dial check config > than timeout usage. In some dial context the connection timeout may be split and become less based on how much addesses we have. do len / 2 >= addr or * the timeout to fix this. For the dial context timeout to be correct we need to have addresses * timeout.
 
-[Completed] Fix: xTransport Fetch manipulation with wrong TLS version server response
+[Completed]
+*    Re-check: don't allow protocol connection drop only on some RSA security bypass.
 
-[Improvement]  Add: Force Post - Get Request and retries.
 
-[Improvement]  Add: Control if we want to change cipher cuites after successfull connection and after how many failures
+[Completed]
+*    Fix: xTransport Fetch manipulation with wrong TLS version server response
 
-[Improvement]  Add get and try cipher suites in configuration order for TLS 1.2. Can do this by trying them 1 by 1 in order and then continue with the normal execution.
+[Improvement]
+*    Add: Force Post - Get Request and retries.
+
+[Improvement]
+*    Add: Control if we want to change cipher cuites after successfull connection and after how many failures
+
+[Improvement]
+*    Add get and try cipher suites in configuration order for TLS 1.2. Can do this by trying them 1 by 1 in order and then continue with the normal execution.
+
+[Improvement]      
+*    Don't drop on failed listen address if more than one exist and some is valid and recheck on successfull connection.
