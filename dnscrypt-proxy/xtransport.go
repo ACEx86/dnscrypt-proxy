@@ -208,7 +208,7 @@ func (xTransport *XTransport) loadCachedIPs(host string) (ips []net.IP, expired 
 	ips = nil
 	xTransport.cachedIPs.RLock()
 	item, ok := xTransport.cachedIPs.cache[host]
-	if !ok {
+	if !ok || item == nil {
 		xTransport.cachedIPs.RUnlock()
 		dlog.Debugf("[%s] IP address not found in the cache", host)
 		return nil, false, false
@@ -216,7 +216,7 @@ func (xTransport *XTransport) loadCachedIPs(host string) (ips []net.IP, expired 
 	if len(item.ips) > 0 {
 		ips = make([]net.IP, 0, len(item.ips))
 		for _, ip := range item.ips {
-			if ip == nil {
+			if ip == nil || len(ip) <= 0 {
 				continue
 			}
 			ips = append(ips, append(net.IP(nil), ip...))

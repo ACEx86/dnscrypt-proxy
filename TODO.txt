@@ -12,9 +12,8 @@ TODO:
 [Important]
 *    At dial check config > than timeout usage. In some dial context the connection timeout may be split and become less based on how much addesses we have. do len / 2 >= addr or * the timeout to fix this. For the dial context timeout to be correct we need to have addresses * timeout.
 
-[Completed]
-*    Re-check: don't allow protocol connection drop only on some RSA security bypass.
-
+[Important] [Done]
+*    Re-check: don't allow http protocol change when RSA is used. [ RFC++ RSA encryption bypass ]
 
 [Completed]
 *    Fix: xTransport Fetch manipulation with wrong TLS version server response
